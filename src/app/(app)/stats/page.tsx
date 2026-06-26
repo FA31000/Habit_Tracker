@@ -31,32 +31,11 @@ export default function StatsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: habits } = await supabase
-      .from('habits')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true })
-
-    const { data: allCheckins } = await supabase
-      .from('checkins')
-      .select('*')
-      .eq('user_id', user.id)
-
-    const { data: streaks } = await supabase
-      .from('streaks')
-      .select('*')
-      .eq('user_id', user.id)
-
-    const { data: badges } = await supabase
-      .from('badges')
-      .select('*')
-      .eq('user_id', user.id)
-
-    const { data: redeemed } = await supabase
-      .from('wishlist_items')
-      .select('price')
-      .eq('user_id', user.id)
-      .eq('redeemed', true)
+    const { data: habits } = await supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
+    const { data: allCheckins } = await supabase.from('checkins').select('*').eq('user_id', user.id)
+    const { data: streaks } = await supabase.from('streaks').select('*').eq('user_id', user.id)
+    const { data: badges } = await supabase.from('badges').select('*').eq('user_id', user.id)
+    const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
     const streakMap = new Map((streaks ?? []).map(s => [s.habit_id, s]))
     const badgeMap = new Map<string, number[]>()
@@ -65,7 +44,6 @@ export default function StatsPage() {
       badgeMap.get(b.habit_id)!.push(b.milestone_days)
     })
 
-    // Per-habit stats
     const habitStats: HabitStats[] = (habits ?? []).map(habit => {
       const habitCheckins = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
       const kept = habitCheckins.filter(c => c.response === 'yes').length
@@ -82,7 +60,6 @@ export default function StatsPage() {
       }
     })
 
-    // Overall balance
     const yesCheckins = (allCheckins ?? []).filter(c => c.response === 'yes')
     const habitMap = new Map((habits ?? []).map(h => [h.id, h.dollar_value]))
     const streakMapSimple = new Map((streaks ?? []).map(s => [s.habit_id, s.current_streak]))
@@ -94,14 +71,9 @@ export default function StatsPage() {
       earned += dv * mult
     })
     const spent = (redeemed ?? []).reduce((s, r) => s + r.price, 0)
-
-    // Unique check-in days
     const uniqueDays = new Set((allCheckins ?? []).map(c => c.date)).size
-
-    // Best streak overall
     const best = Math.max(0, ...(streaks ?? []).map(s => s.longest_streak))
 
-    // Last 7 days bar chart
     const days: DayBar[] = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
@@ -126,93 +98,78 @@ export default function StatsPage() {
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold pt-4 mb-5">Stats</h1>
-
-      {/* Overall summary */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="bg-gray-900 rounded-2xl p-3 border border-gray-800 text-center">
-          <p className="text-green-400 font-bold text-lg">S${totalBalance.toFixed(2)}</p>
-          <p className="text-xs text-gray-500 mt-1">Balance</p>
+      <div className="grid grid-cols-3 gap-3 mb-4 mt-2">
+        <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
+          <p className="text-emerald-700 font-extrabold text-lg">S${totalBalance.toFixed(2)}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Balance</p>
         </div>
-        <div className="bg-gray-900 rounded-2xl p-3 border border-gray-800 text-center">
-          <p className="text-indigo-400 font-bold text-lg">{totalDaysCheckedIn}</p>
-          <p className="text-xs text-gray-500 mt-1">Days done</p>
+        <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
+          <p className="text-emerald-700 font-extrabold text-lg">{totalDaysCheckedIn}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Days done</p>
         </div>
-        <div className="bg-gray-900 rounded-2xl p-3 border border-gray-800 text-center">
-          <p className="text-amber-400 font-bold text-lg">{bestStreak}</p>
-          <p className="text-xs text-gray-500 mt-1">Best streak</p>
+        <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
+          <p className="text-emerald-700 font-extrabold text-lg">{bestStreak}</p>
+          <p className="text-xs text-gray-500 mt-0.5">Best streak</p>
         </div>
       </div>
 
-      {/* Last 7 days chart */}
-      <div className="bg-gray-900 rounded-2xl p-4 border border-gray-800 mb-6">
-        <p className="text-sm font-semibold mb-4 text-gray-300">Habits kept — last 7 days</p>
+      <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mb-4">
+        <p className="text-sm font-semibold text-gray-700 mb-4">Habits kept — last 7 days</p>
         <ResponsiveContainer width="100%" height={120}>
           <BarChart data={weekData} barSize={28}>
-            <XAxis dataKey="day" tick={{ fill: '#6b7280', fontSize: 11 }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="day" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis hide />
             <Tooltip
-              contentStyle={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: '#9ca3af' }}
-              itemStyle={{ color: '#34d399' }}
+              contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: '#6b7280' }}
+              itemStyle={{ color: '#047857' }}
               formatter={(v) => [`${v} habits`, '']}
             />
             <Bar dataKey="count" radius={[6, 6, 0, 0]}>
               {weekData.map((entry, i) => (
-                <Cell key={i} fill={entry.count > 0 ? '#4f46e5' : '#1f2937'} />
+                <Cell key={i} fill={entry.count > 0 ? '#047857' : '#e5e7eb'} />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Per-habit stats */}
-      <p className="text-xs text-gray-500 uppercase tracking-wide mb-3">Per habit</p>
+      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">Per habit</p>
       <div className="space-y-3">
         {stats.map(s => {
           const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
           return (
-            <div key={s.habit.id} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+            <div key={s.habit.id} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
               <div className="flex items-start justify-between mb-3">
-                <p className="text-sm font-medium flex-1 pr-2">{s.habit.name}</p>
-                {topBadge && (
-                  <span className="text-lg" title={topBadge.label}>{topBadge.emoji}</span>
-                )}
+                <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
+                {topBadge && <span className="text-lg" title={topBadge.label}>{topBadge.emoji}</span>}
               </div>
-
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div className="text-center">
-                  <p className="text-white font-bold">{s.currentStreak}</p>
-                  <p className="text-xs text-gray-500">Streak</p>
+                  <p className="text-gray-900 font-bold">{s.currentStreak}</p>
+                  <p className="text-xs text-gray-400">Streak</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-white font-bold">{s.longestStreak}</p>
-                  <p className="text-xs text-gray-500">Best</p>
+                  <p className="text-gray-900 font-bold">{s.longestStreak}</p>
+                  <p className="text-xs text-gray-400">Best</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-white font-bold">{s.successRate}%</p>
-                  <p className="text-xs text-gray-500">Rate</p>
+                  <p className="text-gray-900 font-bold">{s.successRate}%</p>
+                  <p className="text-xs text-gray-400">Rate</p>
                 </div>
               </div>
-
-              {/* Badge row */}
-              {BADGE_MILESTONES.length > 0 && (
-                <div className="flex gap-2 mt-2">
-                  {BADGE_MILESTONES.map(m => {
-                    const cfg = BADGE_CONFIG[m]
-                    const earned = s.earnedBadges.includes(m)
-                    return (
-                      <div
-                        key={m}
-                        title={`${cfg.label} — ${m} days`}
-                        className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}
-                      >
-                        {cfg.emoji}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
+              <div className="flex gap-2 mt-2">
+                {BADGE_MILESTONES.map(m => {
+                  const cfg = BADGE_CONFIG[m]
+                  const earned = s.earnedBadges.includes(m)
+                  return (
+                    <div key={m} title={`${cfg.label} — ${m} days`}
+                      className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
+                      {cfg.emoji}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )
         })}

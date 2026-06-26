@@ -22,46 +22,40 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     const payload = {
       name: name.trim(),
       dollar_value: parseFloat(dollarValue) || 1,
       allowed_no_days_per_week: parseInt(allowedNoDays) || 0,
     }
-
     if (habit) {
       await supabase.from('habits').update(payload).eq('id', habit.id)
     } else {
       await supabase.from('habits').insert({ ...payload, user_id: user.id })
     }
-
     setSaving(false)
     onSaved()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-end justify-center" onClick={onClose}>
-      <div
-        className="bg-gray-900 rounded-t-3xl w-full max-w-lg p-6 pb-10"
-        onClick={e => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-bold mb-5">{habit ? 'Edit Habit' : 'New Habit'}</h2>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-10 shadow-xl" onClick={e => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-gray-900 mb-5">{habit ? 'Edit Habit' : 'New Habit'}</h2>
 
         <form onSubmit={handleSave} className="space-y-4">
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Habit question</label>
+            <label className="text-xs text-gray-500 mb-1 block font-medium">Habit question</label>
             <input
               type="text"
               placeholder="e.g. Did I go for a run?"
               value={name}
               onChange={e => setName(e.target.value)}
               required
-              className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
+              className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">Reward per day (S$)</label>
+            <label className="text-xs text-gray-500 mb-1 block font-medium">Reward per day (S$)</label>
             <input
               type="number"
               step="0.01"
@@ -70,18 +64,18 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
               value={dollarValue}
               onChange={e => setDollarValue(e.target.value)}
               required
-              className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
+              className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">
-              Allowed "No" days per week (streak still counts)
+            <label className="text-xs text-gray-500 mb-1 block font-medium">
+              Allowed &quot;No&quot; days per week (streak still counts)
             </label>
             <select
               value={allowedNoDays}
               onChange={e => setAllowedNoDays(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
+              className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
             >
               {[0, 1, 2, 3, 4, 5, 6].map(n => (
                 <option key={n} value={n}>{n} day{n !== 1 ? 's' : ''}</option>
@@ -93,14 +87,14 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3 rounded-xl bg-gray-800 text-gray-300 font-semibold"
+              className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold disabled:opacity-50"
+              className="flex-1 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>

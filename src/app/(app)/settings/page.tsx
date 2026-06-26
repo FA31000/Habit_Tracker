@@ -78,30 +78,21 @@ export default function SettingsPage() {
 
   async function subscribeNotifications() {
     if (!('serviceWorker' in navigator)) return
-
     const permission = await Notification.requestPermission()
-    if (permission !== 'granted') {
-      setNotifStatus('denied')
-      return
-    }
-
+    if (permission !== 'granted') { setNotifStatus('denied'); return }
     const reg = await navigator.serviceWorker.register('/sw.js')
     await navigator.serviceWorker.ready
-
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
     })
-
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription: sub.toJSON(), user_id: user.id, role: 'user' }),
     })
-
     setNotifStatus('subscribed')
   }
 
@@ -110,10 +101,7 @@ export default function SettingsPage() {
     setSavingTime(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('user_settings').upsert(
-      { user_id: user.id, reminder_time: time },
-      { onConflict: 'user_id' }
-    )
+    await supabase.from('user_settings').upsert({ user_id: user.id, reminder_time: time }, { onConflict: 'user_id' })
     setSavingTime(false)
   }
 
@@ -125,44 +113,39 @@ export default function SettingsPage() {
 
   return (
     <div className="p-4">
-      <h1 className="text-xl font-bold pt-4 mb-6">Settings</h1>
-
       {/* Push Notifications */}
-      <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 mb-4">
-        <h2 className="font-semibold mb-1">Daily Reminder</h2>
-        <p className="text-sm text-gray-400 mb-4">
+      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-4 mt-2">
+        <h2 className="font-semibold text-gray-900 mb-1">Daily Reminder</h2>
+        <p className="text-sm text-gray-500 mb-4">
           Get a push notification to remind you to check in each day.
         </p>
 
         {notifStatus === 'unsupported' && (
-          <p className="text-xs text-yellow-500">Push notifications are not supported on this browser.</p>
+          <p className="text-xs text-amber-600">Push notifications are not supported on this browser.</p>
         )}
-
         {notifStatus === 'denied' && (
-          <p className="text-xs text-red-400">Notifications are blocked. Please enable them in your browser settings.</p>
+          <p className="text-xs text-red-500">Notifications are blocked. Please enable them in your browser settings.</p>
         )}
-
         {notifStatus === 'subscribed' ? (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-green-400 text-sm">
-              <span>✅</span>
-              <span>Notifications are on</span>
+            <div className="flex items-center gap-2 text-emerald-700 text-sm font-medium">
+              <span>✅</span><span>Notifications are on</span>
             </div>
             <div className="flex items-center gap-3">
-              <label className="text-sm text-gray-400">Remind me at</label>
+              <label className="text-sm text-gray-500">Remind me at</label>
               <input
                 type="time"
                 value={reminderTime}
                 onChange={e => saveReminderTime(e.target.value)}
-                className="bg-gray-800 text-white rounded-lg px-3 py-2 border border-gray-700 text-sm"
+                className="bg-gray-100 text-gray-900 rounded-xl px-3 py-2 border border-gray-200 text-sm focus:outline-none focus:border-emerald-600"
               />
-              {savingTime && <span className="text-xs text-gray-500">Saving...</span>}
+              {savingTime && <span className="text-xs text-gray-400">Saving...</span>}
             </div>
           </div>
         ) : notifStatus === 'unknown' ? (
           <button
             onClick={subscribeNotifications}
-            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+            className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold shadow-sm"
           >
             🔔 Enable Notifications
           </button>
@@ -170,38 +153,35 @@ export default function SettingsPage() {
       </div>
 
       {/* Accountability Partner */}
-      <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 mb-4">
-        <h2 className="font-semibold mb-1">Accountability Partner</h2>
-        <p className="text-sm text-gray-400 mb-4">
+      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-4">
+        <h2 className="font-semibold text-gray-900 mb-1">Accountability Partner</h2>
+        <p className="text-sm text-gray-500 mb-4">
           Share a link with your partner. They can see your streaks and badges, and react with an emoji. No account needed.
         </p>
 
         {!shareToken ? (
           <button
             onClick={generateLink}
-            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+            className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold shadow-sm"
           >
             Generate Share Link
           </button>
         ) : (
           <div className="space-y-3">
-            <div className="bg-gray-800 rounded-xl p-3 text-xs text-gray-300 break-all">
+            <div className="bg-gray-100 rounded-xl p-3 text-xs text-gray-600 break-all">
               {partnerUrl}
             </div>
             <button
               onClick={copyLink}
-              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+              className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold shadow-sm"
             >
               {copied ? '✅ Copied!' : '📋 Copy Link'}
             </button>
-            <p className="text-xs text-gray-500 text-center">
-              Send this to your wife via WhatsApp
-            </p>
+            <p className="text-xs text-gray-400 text-center">Send this to your wife via WhatsApp</p>
           </div>
         )}
       </div>
 
-      {/* Reactions received */}
       {shareToken && <ReactionsPanel token={shareToken} />}
     </div>
   )
@@ -213,40 +193,28 @@ function ReactionsPanel({ token }: { token: string }) {
 
   useEffect(() => {
     async function load() {
-      const { data: link } = await supabase
-        .from('share_links')
-        .select('id')
-        .eq('token', token)
-        .single()
-
+      const { data: link } = await supabase.from('share_links').select('id').eq('token', token).single()
       if (!link) return
-
-      const { data } = await supabase
-        .from('reactions')
-        .select('emoji, reacted_at')
-        .eq('share_link_id', link.id)
-        .order('reacted_at', { ascending: false })
-        .limit(10)
-
+      const { data } = await supabase.from('reactions').select('emoji, reacted_at').eq('share_link_id', link.id).order('reacted_at', { ascending: false }).limit(10)
       setReactions(data ?? [])
     }
     load()
   }, [token])
 
   if (reactions.length === 0) return (
-    <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800 text-center">
-      <p className="text-gray-500 text-sm">No reactions yet from your partner.</p>
+    <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 text-center">
+      <p className="text-gray-400 text-sm">No reactions yet from your partner.</p>
     </div>
   )
 
   return (
-    <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-      <h2 className="font-semibold mb-3">Reactions from your partner</h2>
+    <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5">
+      <h2 className="font-semibold text-gray-900 mb-3">Reactions from your partner</h2>
       <div className="space-y-2">
         {reactions.map((r, i) => (
           <div key={i} className="flex items-center justify-between">
             <span className="text-2xl">{r.emoji}</span>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-400">
               {new Date(r.reacted_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
             </span>
           </div>

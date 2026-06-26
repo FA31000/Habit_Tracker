@@ -41,59 +41,19 @@ export default function CheckInPage() {
     }
     if (!user) return
 
-    // Seed default habits if none exist
     const { data: existingHabits } = await supabase.from('habits').select('id').eq('user_id', user.id)
     if (existingHabits && existingHabits.length === 0) {
-      await supabase.from('habits').insert(
-        DEFAULT_HABITS.map(h => ({ ...h, user_id: user!.id }))
-      )
-      await supabase.from('wishlist_items').insert({
-        user_id: user.id,
-        name: 'Premium smartphone',
-        price: 2000.00,
-      })
+      await supabase.from('habits').insert(DEFAULT_HABITS.map(h => ({ ...h, user_id: user!.id })))
+      await supabase.from('wishlist_items').insert({ user_id: user.id, name: 'Premium smartphone', price: 2000.00 })
     }
 
-    const { data: habitsData } = await supabase
-      .from('habits')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
+    const { data: habitsData } = await supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true })
+    const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', today)
+    const { data: freezeData } = await supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single()
+    const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response').eq('user_id', user.id).eq('response', 'yes')
+    const { data: streaksData } = await supabase.from('streaks').select('habit_id, current_streak').eq('user_id', user.id)
+    const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
-    const { data: checkinsData } = await supabase
-      .from('checkins')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('date', today)
-
-    const { data: freezeData } = await supabase
-      .from('freeze_tokens')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('week_start', weekStart)
-      .single()
-
-    // Calculate balance from all checkins + streaks
-    const { data: allCheckins } = await supabase
-      .from('checkins')
-      .select('habit_id, response')
-      .eq('user_id', user.id)
-      .eq('response', 'yes')
-
-    const { data: streaksData } = await supabase
-      .from('streaks')
-      .select('habit_id, current_streak')
-      .eq('user_id', user.id)
-
-    // Sum up earned balance from all-time yes checkins
-    const { data: redeemed } = await supabase
-      .from('wishlist_items')
-      .select('price')
-      .eq('user_id', user.id)
-      .eq('redeemed', true)
-
-    // Simple balance: sum of (dollar_value * multiplier) for all yes checkins
     const habitMap = new Map((habitsData ?? []).map((h: Habit) => [h.id, h]))
     const streakMap = new Map((streaksData ?? []).map((s: { habit_id: string; current_streak: number }) => [s.habit_id, s.current_streak]))
     let earned = 0
@@ -106,14 +66,11 @@ export default function CheckInPage() {
 
     setHabits(habitsData ?? [])
     setBalance(Math.max(0, earned - spent))
-
     const map: CheckinMap = {}
     ;(checkinsData ?? []).forEach((c: Checkin) => { map[c.habit_id] = c.response })
     setCheckins(map)
     setFreezeUsed(freezeData?.used ?? false)
-
-    const allAnswered = (habitsData ?? []).every((h: Habit) => map[h.id])
-    setDone(allAnswered)
+    setDone((habitsData ?? []).every((h: Habit) => map[h.id]))
     setLoading(false)
   }, [today, weekStart])
 
@@ -122,28 +79,15 @@ export default function CheckInPage() {
   async function answer(habitId: string, response: 'yes' | 'no' | 'freeze') {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-
     if (response === 'freeze') {
       if (freezeUsed) return
-      await supabase.from('freeze_tokens').upsert({
-        user_id: user.id,
-        week_start: weekStart,
-        used: true,
-      })
+      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: true })
       setFreezeUsed(true)
     }
-
-    await supabase.from('checkins').upsert({
-      habit_id: habitId,
-      user_id: user.id,
-      date: today,
-      response,
-    })
-
+    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: today, response })
     setCheckins(prev => {
       const next = { ...prev, [habitId]: response }
-      const allAnswered = habits.every(h => next[h.id])
-      if (allAnswered) setDone(false) // reset done so save button shows
+      if (habits.every(h => next[h.id])) setDone(false)
       return next
     })
   }
@@ -152,63 +96,31 @@ export default function CheckInPage() {
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
-
     const earned: string[] = []
-
     for (const habit of habits) {
       const response = checkins[habit.id]
       if (!response) continue
-
-      const weekStartDate = new Date(weekStart)
-      const weekEndDate = new Date(weekStartDate)
+      const weekEndDate = new Date(weekStart)
       weekEndDate.setDate(weekEndDate.getDate() + 6)
-
-      const { data: weekCheckins } = await supabase
-        .from('checkins')
-        .select('response')
-        .eq('habit_id', habit.id)
-        .gte('date', weekStart)
-        .lte('date', weekEndDate.toISOString().split('T')[0])
-
+      const { data: weekCheckins } = await supabase.from('checkins').select('response').eq('habit_id', habit.id).gte('date', weekStart).lte('date', weekEndDate.toISOString().split('T')[0])
       const noDaysThisWeek = (weekCheckins ?? []).filter((c: { response: string }) => c.response === 'no').length
       const streakContinues = response === 'yes' || response === 'freeze' || noDaysThisWeek <= habit.allowed_no_days_per_week
-
-      const { data: streakData } = await supabase
-        .from('streaks')
-        .select('*')
-        .eq('habit_id', habit.id)
-        .single()
-
+      const { data: streakData } = await supabase.from('streaks').select('*').eq('habit_id', habit.id).single()
       if (streakData) {
         const newCurrent = streakContinues ? streakData.current_streak + 1 : 0
         const newLongest = Math.max(streakData.longest_streak, newCurrent)
-        await supabase.from('streaks').update({
-          current_streak: newCurrent,
-          longest_streak: newLongest,
-          updated_at: new Date().toISOString(),
-        }).eq('habit_id', habit.id)
-
+        await supabase.from('streaks').update({ current_streak: newCurrent, longest_streak: newLongest, updated_at: new Date().toISOString() }).eq('habit_id', habit.id)
         for (const milestone of BADGE_MILESTONES) {
           if (newCurrent >= milestone && streakData.current_streak < milestone) {
-            await supabase.from('badges').upsert({
-              habit_id: habit.id,
-              user_id: user.id,
-              milestone_days: milestone,
-            })
+            await supabase.from('badges').upsert({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
             earned.push(`${habit.name} — ${milestone}-day badge!`)
           }
         }
       } else {
         const newCurrent = streakContinues ? 1 : 0
-        await supabase.from('streaks').insert({
-          habit_id: habit.id,
-          user_id: user.id,
-          current_streak: newCurrent,
-          longest_streak: newCurrent,
-        })
+        await supabase.from('streaks').insert({ habit_id: habit.id, user_id: user.id, current_streak: newCurrent, longest_streak: newCurrent })
       }
     }
-
     setNewBadges(earned)
     setSaving(false)
     setDone(true)
@@ -222,37 +134,30 @@ export default function CheckInPage() {
 
   return (
     <div className="p-4">
-      {/* Header */}
-      <div className="pt-4 mb-4">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">Today&apos;s Check-In</h1>
-          <span className="text-xs text-gray-400">{new Date().toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <div className="text-xs text-gray-500">
-            {answered}/{habits.length} answered
-            {!freezeUsed && <span className="ml-3 text-amber-400">❄️ 1 freeze available</span>}
-            {freezeUsed && <span className="ml-3 text-gray-600">❄️ Freeze used</span>}
-          </div>
-          <div className="text-sm font-bold text-green-400">S${balance.toFixed(2)}</div>
+      <div className="flex items-center justify-between mb-4 mt-2">
+        <p className="text-sm text-gray-500">{answered}/{habits.length} answered</p>
+        <div className="flex items-center gap-3">
+          {!freezeUsed
+            ? <span className="text-xs text-amber-600 font-medium">❄️ 1 freeze left</span>
+            : <span className="text-xs text-gray-400">❄️ Freeze used</span>}
+          <span className="text-sm font-bold text-emerald-700">S${balance.toFixed(2)}</span>
         </div>
       </div>
 
-      {/* Habits */}
       <div className="space-y-3">
         {habits.map(habit => {
           const response = checkins[habit.id]
           return (
-            <div key={habit.id} className="bg-gray-900 rounded-2xl p-4 border border-gray-800">
+            <div key={habit.id} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium">{habit.name}</p>
-                <span className="text-xs text-green-600">+S${habit.dollar_value.toFixed(2)}</span>
+                <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
+                <span className="text-xs text-emerald-700 font-medium">+S${habit.dollar_value.toFixed(2)}</span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => answer(habit.id, 'yes')}
                   className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
-                    response === 'yes' ? 'bg-green-600 text-white' : 'bg-gray-800 text-gray-300 active:bg-green-700'
+                    response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'
                   }`}
                 >
                   ✅ Yes
@@ -260,7 +165,7 @@ export default function CheckInPage() {
                 <button
                   onClick={() => answer(habit.id, 'no')}
                   className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
-                    response === 'no' ? 'bg-red-700 text-white' : 'bg-gray-800 text-gray-300 active:bg-red-800'
+                    response === 'no' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 active:bg-red-100'
                   }`}
                 >
                   ❌ No
@@ -269,9 +174,9 @@ export default function CheckInPage() {
                   onClick={() => answer(habit.id, 'freeze')}
                   disabled={freezeUsed && response !== 'freeze'}
                   className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
-                    response === 'freeze' ? 'bg-blue-700 text-white'
-                    : freezeUsed ? 'bg-gray-800 text-gray-600 cursor-not-allowed'
-                    : 'bg-gray-800 text-amber-300 active:bg-blue-800'
+                    response === 'freeze' ? 'bg-blue-500 text-white'
+                    : freezeUsed ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                    : 'bg-gray-100 text-amber-600 active:bg-blue-100'
                   }`}
                 >
                   ❄️ Freeze
@@ -286,7 +191,7 @@ export default function CheckInPage() {
         <button
           onClick={saveAll}
           disabled={saving}
-          className="w-full mt-6 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-base disabled:opacity-50"
+          className="w-full mt-6 py-4 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-base disabled:opacity-50 shadow-sm"
         >
           {saving ? 'Saving...' : '🎯 Save Check-In'}
         </button>
@@ -294,13 +199,13 @@ export default function CheckInPage() {
 
       {done && (
         <div className="mt-6 space-y-3">
-          <div className="bg-green-900/30 border border-green-800 rounded-2xl p-4 text-center">
-            <div className="text-2xl mb-1">🎉</div>
-            <p className="text-green-400 font-semibold">Check-in complete!</p>
-            <p className="text-gray-400 text-sm mt-1">Balance: <span className="text-green-400 font-bold">S${balance.toFixed(2)}</span></p>
+          <div className="bg-white ring-1 ring-black/5 rounded-2xl p-5 text-center shadow-sm">
+            <div className="text-3xl mb-2">🎉</div>
+            <p className="text-emerald-700 font-bold text-base">Check-in complete!</p>
+            <p className="text-gray-500 text-sm mt-1">Balance: <span className="text-emerald-700 font-bold">S${balance.toFixed(2)}</span></p>
           </div>
           {newBadges.map((b, i) => (
-            <div key={i} className="bg-yellow-900/30 border border-yellow-700 rounded-2xl p-3 text-center text-sm text-yellow-300">
+            <div key={i} className="bg-amber-50 ring-1 ring-amber-200 rounded-2xl p-3 text-center text-sm text-amber-700 font-medium">
               🏅 New badge: {b}
             </div>
           ))}
