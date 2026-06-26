@@ -31,7 +31,11 @@ export default function CheckInPage() {
   const weekStart = getWeekStart()
 
   const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+    let { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      const { data } = await supabase.auth.signInAnonymously()
+      user = data.user
+    }
     if (!user) return
 
     // Seed default habits if none exist

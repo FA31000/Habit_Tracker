@@ -13,6 +13,13 @@ export default function HabitsPage() {
   const supabase = createClient()
 
   async function loadHabits() {
+    let { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      const { data } = await supabase.auth.signInAnonymously()
+      user = data.user
+    }
+    if (!user) return
+
     const { data } = await supabase
       .from('habits')
       .select('*')

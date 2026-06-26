@@ -21,18 +21,8 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const isAuthPage = request.nextUrl.pathname.startsWith('/login')
-  const isPublicPage = request.nextUrl.pathname.startsWith('/partner')
-
-  if (!user && !isAuthPage && !isPublicPage) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  if (user && isAuthPage) {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
+  // Keep session alive — no redirects, no login required
+  await supabase.auth.getUser()
 
   return supabaseResponse
 }
