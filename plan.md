@@ -147,9 +147,16 @@ Badges displayed on a profile/trophy page per habit.
 - Emoji reactions
 - Push notifications to partner (badge earned, streak broken)
 
-### Phase 6 — Push Notifications
-- Daily reminder setup for user
-- User sets preferred time
+### Phase 6 — Push Notifications ✅
+- Service worker (`/public/sw.js`) handles incoming push events
+- VAPID keys generated and stored in `.env.local`
+- `/api/push/subscribe` — saves user's push subscription to Supabase
+- `/api/push/send` — sends a push to any user by user_id + role
+- `/api/cron/daily-reminder` — Vercel cron (every minute) checks who needs a reminder now and sends it
+- `vercel.json` configured with cron schedule
+- Settings page: "Enable Notifications" button + time picker (default 9 PM)
+- `push_subscriptions` table in Supabase (user_id, role, subscription)
+- `user_settings` table in Supabase (user_id, reminder_time)
 
 ---
 
