@@ -21,12 +21,26 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Keep session alive — no redirects, no login required
-  await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const { pathname } = request.nextUrl
+
+  // Allow public routes
+  if (pathname.startsWith('/partner') || pathname === '/login') {
+    if (user && pathname === '/login') {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+    return supabaseResponse
+  }
+
+  // Protect all other routes
+  if (!user) {
+    return NextResponse.redirect(new URL('/login', request.url))
+  }
 
   return supabaseResponse
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons|manifest).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|icons|manifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
 }
