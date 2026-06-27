@@ -12,6 +12,7 @@ type Props = {
 
 export default function HabitForm({ habit, onClose, onSaved }: Props) {
   const [name, setName] = useState(habit?.name ?? '')
+  const [description, setDescription] = useState(habit?.description ?? '')
   const [dollarValue, setDollarValue] = useState(habit?.dollar_value?.toString() ?? '1.00')
   const [allowedNoDays, setAllowedNoDays] = useState(habit?.allowed_no_days_per_week?.toString() ?? '0')
   const [saving, setSaving] = useState(false)
@@ -24,6 +25,7 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
     if (!user) return
     const payload = {
       name: name.trim(),
+      description: description.trim() || null,
       dollar_value: parseFloat(dollarValue) || 1,
       allowed_no_days_per_week: parseInt(allowedNoDays) || 0,
     }
@@ -51,6 +53,17 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
               onChange={e => setName(e.target.value)}
               required
               className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block font-medium">Description (optional)</label>
+            <textarea
+              placeholder="e.g. Why this habit matters to me..."
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base resize-none"
             />
           </div>
 

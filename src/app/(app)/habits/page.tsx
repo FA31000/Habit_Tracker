@@ -94,6 +94,9 @@ export default function HabitsPage() {
                 <span className="text-gray-300 text-base mt-0.5 select-none">⠿</span>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-gray-900 leading-snug">{habit.name}</p>
+                  {habit.description && (
+                    <p className="text-xs text-gray-500 mt-0.5 leading-snug">{habit.description}</p>
+                  )}
                   <div className="flex gap-3 mt-1 text-xs text-gray-500">
                     <span>S${habit.dollar_value.toFixed(2)}/day</span>
                     {habit.allowed_no_days_per_week > 0 && (

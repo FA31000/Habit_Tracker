@@ -38,6 +38,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Dollar value per day (e.g. $1.00)
   - Active/inactive toggle
   - **Allowed "No" days per week** (default: 0) — the streak continues even if you answer No, as long as you stay within this limit. Example: "Did I eat healthy?" set to 2 means you can answer No twice a week without breaking your streak.
+  - **Description** (optional) — a personal note about why this habit matters. Only visible and editable on the Habits page.
 
 ### 2. Daily Check-In
 - One screen per day: list of all habits with Yes / No buttons
@@ -46,6 +47,8 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 - Each habit has three options per day: **Yes**, **No**, or **Freeze**
 - One freeze token per week, shared across all habits — using Freeze on a habit protects its streak for that day (max 1 use per week total)
 - **Reading minutes popup**: when tapping Yes on "Did I read today?", a popup appears asking how many minutes were read. Minutes are stored in localStorage and shown in a Reading Stats section below the check-in.
+- **Exercise popup**: when tapping Yes on the exercise habit, a popup appears asking which exercise you did (Running / Swimming / Biking / Resistance / Yoga / Other — tap to select, optional) and your weight in kg (optional). Both are stored in localStorage.
+- **Exercise weight graph**: on the Stats page, a line graph showing weight over time appears below the exercise habit card (only shown if at least one weight entry exists).
 
 ### 3. Points & Dollar Balance
 - Each habit kept = base points (= dollar value set for that habit)
@@ -54,7 +57,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Days 7–29: 1.5x
   - Days 30–364: 2x
   - Days 365+: 3x
-- Total balance shown in SGD dollars and cents (e.g. S$12.50)
+- Total balance shown in the configured currency symbol (default: S$)
 - Balance increases with daily check-ins, decreases when wishlist items are redeemed
 
 ### 4. Streaks
@@ -83,6 +86,7 @@ Badges displayed on a profile/trophy page per habit.
 - Pre-loaded first wishlist item: Premium smartphone — S$2,000
 - Items show as locked until balance is sufficient
 - Mark as "Redeemed" — deducts price from dollar balance
+- Drag-and-drop reordering of available rewards; order persisted in localStorage
 - History of redeemed items
 
 ### 8. Accountability Partner
@@ -109,7 +113,7 @@ Badges displayed on a profile/trophy page per habit.
 ## Database Tables (Supabase)
 
 - `users` — auth (handled by Supabase Auth)
-- `habits` — id, user_id, name, dollar_value, is_active, allowed_no_days_per_week (default 0), created_at
+- `habits` — id, user_id, name, description (optional text), dollar_value, is_active, allowed_no_days_per_week (default 0), created_at
 - `checkins` — id, habit_id, user_id, date, kept (boolean)
 - `streaks` — id, habit_id, user_id, current_streak, longest_streak
 - `freeze_tokens` — id, user_id, week_start, used (boolean)
@@ -147,6 +151,16 @@ Badges displayed on a profile/trophy page per habit.
 - Public view page
 - Emoji reactions
 - Push notifications to partner (badge earned, streak broken)
+
+### Phase 7 — Settings (Configurable Variables) ✅
+- **Streak Bonuses**: editable tier thresholds and multipliers (stored in localStorage, applied immediately to balance calculation)
+  - Tier 1: after N days → multiplier (default: 7 days → 1.5×)
+  - Tier 2: after N days → multiplier (default: 30 days → 2×)
+  - Tier 3: after N days → multiplier (default: 365 days → 3×)
+  - Reset to defaults button
+- **Currency Symbol**: editable text field (default: S$), shown next to balance everywhere
+- Config stored in `localStorage` under key `app_config`
+- Changes take effect immediately on the check-in page via a `storage` event listener
 
 ### Phase 6 — Push Notifications ✅
 - Service worker (`/public/sw.js`) handles incoming push events

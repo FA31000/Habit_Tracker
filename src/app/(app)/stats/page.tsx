@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
 type HabitStats = {
   habit: Habit
@@ -27,11 +27,17 @@ export default function StatsPage() {
   const [bestStreak, setBestStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [readingMinutes, setReadingMinutes] = useState<Record<string, number>>({})
+  const [exerciseData, setExerciseData] = useState<Record<string, { weight?: number }>>({})
   const supabase = createClient()
 
   useEffect(() => {
     const stored = localStorage.getItem('reading_minutes')
     if (stored) setReadingMinutes(JSON.parse(stored))
+  }, [])
+
+  useEffect(() => {
+    const stored = localStorage.getItem('exercise_data')
+    if (stored) setExerciseData(JSON.parse(stored))
   }, [])
 
   const load = useCallback(async () => {
@@ -146,7 +152,13 @@ export default function StatsPage() {
         {stats.map(s => {
           const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
           const isReading = s.habit.name.toLowerCase().includes('read')
+          const isExercise = s.habit.name.toLowerCase().includes('exercise') || s.habit.name.toLowerCase().includes('workout') || s.habit.name.toLowerCase().includes('gym')
           const allKeys = Object.keys(readingMinutes)
+          const weightEntries = Object.entries(exerciseData)
+            .filter(([, v]) => v.weight !== undefined)
+            .map(([k, v]) => ({ date: k.split('_').slice(-1)[0], weight: v.weight as number }))
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map(e => ({ date: new Date(e.date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }), weight: e.weight }))
           const totalMins = allKeys.reduce((sum, k) => sum + (readingMinutes[k] ?? 0), 0)
           const totalHours = Math.floor(totalMins / 60)
           const totalRem = totalMins % 60
@@ -186,6 +198,30 @@ export default function StatsPage() {
                   })}
                 </div>
               </div>
+              {isExercise && weightEntries.length > 0 && (() => {
+                const weights = weightEntries.map(e => e.weight)
+                const wMin = Math.floor(Math.min(...weights)) - 1
+                const wMax = Math.ceil(Math.max(...weights)) + 1
+                const ticks = Array.from({ length: wMax - wMin + 1 }, (_, i) => wMin + i)
+                return (
+                <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
+                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">⚖️ Weight (kg)</p>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <LineChart data={weightEntries} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                      <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} domain={[wMin, wMax]} ticks={ticks} allowDecimals={false} />
+                      <Tooltip
+                        contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                        labelStyle={{ color: '#6b7280' }}
+                        itemStyle={{ color: '#047857' }}
+                        formatter={(v) => [`${v} kg`, '']}
+                      />
+                      <Line type="monotone" dataKey="weight" stroke="#047857" strokeWidth={2} dot={<Dot r={3} fill="#047857" />} activeDot={{ r: 5 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )})()}
               {isReading && allKeys.length > 0 && (
                 <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
                   <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">📚 Reading minutes</p>

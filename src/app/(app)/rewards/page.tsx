@@ -1,8 +1,19 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { WishlistItem } from '@/lib/types'
+
+const ORDER_KEY = 'rewards_order'
+
+function applyOrder(items: WishlistItem[], order: string[]): WishlistItem[] {
+  if (!order.length) return items
+  const indexed = new Map(items.map(i => [i.id, i]))
+  const sorted: WishlistItem[] = []
+  order.forEach(id => { if (indexed.has(id)) sorted.push(indexed.get(id)!) })
+  items.forEach(i => { if (!order.includes(i.id)) sorted.push(i) })
+  return sorted
+}
 
 export default function RewardsPage() {
   const [items, setItems] = useState<WishlistItem[]>([])
@@ -17,6 +28,8 @@ export default function RewardsPage() {
   const [editName, setEditName] = useState('')
   const [editPrice, setEditPrice] = useState('')
   const [editUrl, setEditUrl] = useState('')
+  const dragId = useRef<string | null>(null)
+  const dragOverId = useRef<string | null>(null)
   const supabase = createClient()
 
   const load = useCallback(async () => {
@@ -39,7 +52,8 @@ export default function RewardsPage() {
     })
     const spent = (wishlist ?? []).filter(i => i.redeemed).reduce((s, i) => s + i.price, 0)
 
-    setItems(wishlist ?? [])
+    const savedOrder: string[] = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')
+    setItems(applyOrder(wishlist ?? [], savedOrder))
     setBalance(Math.max(0, earned - spent))
     setLoading(false)
   }, [])
@@ -91,7 +105,37 @@ export default function RewardsPage() {
   async function deleteItem(id: string) {
     if (!confirm('Remove this item?')) return
     await supabase.from('wishlist_items').delete().eq('id', id)
-    setItems(prev => prev.filter(i => i.id !== id))
+    setItems(prev => {
+      const next = prev.filter(i => i.id !== id)
+      localStorage.setItem(ORDER_KEY, JSON.stringify(next.map(i => i.id)))
+      return next
+    })
+  }
+
+  function onDragStart(id: string) {
+    dragId.current = id
+  }
+
+  function onDragOver(e: React.DragEvent, id: string) {
+    e.preventDefault()
+    dragOverId.current = id
+  }
+
+  function onDrop() {
+    const from = dragId.current
+    const to = dragOverId.current
+    if (!from || !to || from === to) return
+    setItems(prev => {
+      const next = [...prev]
+      const fromIdx = next.findIndex(i => i.id === from)
+      const toIdx = next.findIndex(i => i.id === to)
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      localStorage.setItem(ORDER_KEY, JSON.stringify(next.map(i => i.id)))
+      return next
+    })
+    dragId.current = null
+    dragOverId.current = null
   }
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
@@ -127,15 +171,25 @@ export default function RewardsPage() {
           const canRedeem = balance >= item.price
           const progress = Math.min(100, (balance / item.price) * 100)
           return (
-            <div key={item.id} className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5">
+            <div
+              key={item.id}
+              draggable
+              onDragStart={() => onDragStart(item.id)}
+              onDragOver={e => onDragOver(e, item.id)}
+              onDrop={onDrop}
+              className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5 cursor-grab active:cursor-grabbing"
+            >
               <div className="flex items-start justify-between gap-2 mb-1.5">
-                <div>
-                  {item.url ? (
-                    <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-sm text-gray-900 underline">{item.name}</a>
-                  ) : (
-                    <p className="font-semibold text-sm text-gray-900">{item.name}</p>
-                  )}
-                  <p className="text-emerald-700 font-extrabold text-base">S${Math.round(item.price)}</p>
+                <div className="flex items-start gap-2">
+                  <span className="text-gray-300 mt-0.5 select-none">⠿</span>
+                  <div>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-sm text-gray-900 underline">{item.name}</a>
+                    ) : (
+                      <p className="font-semibold text-sm text-gray-900">{item.name}</p>
+                    )}
+                    <p className="text-emerald-700 font-extrabold text-base">S${Math.round(item.price)}</p>
+                  </div>
                 </div>
                 <div className="flex gap-2 mt-1">
                   <button onClick={() => openEdit(item)} className="text-xs text-gray-400">✏️</button>
