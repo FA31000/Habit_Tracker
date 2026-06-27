@@ -37,8 +37,8 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-10 shadow-xl" onClick={e => e.stopPropagation()}>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center pb-16" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-10 shadow-xl max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <h2 className="text-lg font-bold text-gray-900 mb-5">{habit ? 'Edit Habit' : 'New Habit'}</h2>
 
         <form onSubmit={handleSave} className="space-y-4">

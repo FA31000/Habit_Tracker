@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit } from '@/lib/types'
+import { applyStoredOrder } from '@/lib/habitOrder'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 type HabitStats = {
@@ -25,7 +26,13 @@ export default function StatsPage() {
   const [totalDaysCheckedIn, setTotalDaysCheckedIn] = useState(0)
   const [bestStreak, setBestStreak] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [readingMinutes, setReadingMinutes] = useState<Record<string, number>>({})
   const supabase = createClient()
+
+  useEffect(() => {
+    const stored = localStorage.getItem('reading_minutes')
+    if (stored) setReadingMinutes(JSON.parse(stored))
+  }, [])
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -44,7 +51,7 @@ export default function StatsPage() {
       badgeMap.get(b.habit_id)!.push(b.milestone_days)
     })
 
-    const habitStats: HabitStats[] = (habits ?? []).map(habit => {
+    const habitStats: HabitStats[] = applyStoredOrder(habits ?? []).map(habit => {
       const habitCheckins = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
       const kept = habitCheckins.filter(c => c.response === 'yes').length
       const total = habitCheckins.length
@@ -138,38 +145,66 @@ export default function StatsPage() {
       <div className="space-y-3">
         {stats.map(s => {
           const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
+          const isReading = s.habit.name.toLowerCase().includes('read')
+          const allKeys = Object.keys(readingMinutes)
+          const totalMins = allKeys.reduce((sum, k) => sum + (readingMinutes[k] ?? 0), 0)
+          const totalHours = Math.floor(totalMins / 60)
+          const totalRem = totalMins % 60
+          const todayStr = new Date().toISOString().split('T')[0]
+          const todayMins = allKeys.filter(k => k.endsWith('_' + todayStr)).reduce((sum, k) => sum + readingMinutes[k], 0)
           return (
-            <div key={s.habit.id} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
-              <div className="flex items-start justify-between mb-3">
-                <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
-                {topBadge && <span className="text-lg" title={topBadge.label}>{topBadge.emoji}</span>}
+            <div key={s.habit.id}>
+              <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
+                <div className="flex items-start justify-between mb-3">
+                  <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
+                  {topBadge && <span className="text-lg" title={topBadge.label}>{topBadge.emoji}</span>}
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">{s.currentStreak}</p>
+                    <p className="text-xs text-gray-400">Streak</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">{s.longestStreak}</p>
+                    <p className="text-xs text-gray-400">Best</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">{s.successRate}%</p>
+                    <p className="text-xs text-gray-400">Rate</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  {BADGE_MILESTONES.map(m => {
+                    const cfg = BADGE_CONFIG[m]
+                    const earned = s.earnedBadges.includes(m)
+                    return (
+                      <div key={m} title={`${cfg.label} — ${m} days`}
+                        className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
+                        {cfg.emoji}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="text-center">
-                  <p className="text-gray-900 font-bold">{s.currentStreak}</p>
-                  <p className="text-xs text-gray-400">Streak</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-900 font-bold">{s.longestStreak}</p>
-                  <p className="text-xs text-gray-400">Best</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-900 font-bold">{s.successRate}%</p>
-                  <p className="text-xs text-gray-400">Rate</p>
-                </div>
-              </div>
-              <div className="flex gap-2 mt-2">
-                {BADGE_MILESTONES.map(m => {
-                  const cfg = BADGE_CONFIG[m]
-                  const earned = s.earnedBadges.includes(m)
-                  return (
-                    <div key={m} title={`${cfg.label} — ${m} days`}
-                      className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
-                      {cfg.emoji}
+              {isReading && allKeys.length > 0 && (
+                <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
+                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">📚 Reading minutes</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center">
+                      <p className="text-gray-900 font-bold">{todayMins || '—'}</p>
+                      <p className="text-xs text-gray-400">Today</p>
                     </div>
-                  )
-                })}
-              </div>
+                    <div className="text-center">
+                      <p className="text-gray-900 font-bold">{totalHours > 0 ? `${totalHours}h ${totalRem}m` : `${totalRem}m`}</p>
+                      <p className="text-xs text-gray-400">Total</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-gray-900 font-bold">{allKeys.length}</p>
+                      <p className="text-xs text-gray-400">Days read</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}

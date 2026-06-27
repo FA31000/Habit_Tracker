@@ -45,6 +45,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 - If already checked in today, show today's results (read-only)
 - Each habit has three options per day: **Yes**, **No**, or **Freeze**
 - One freeze token per week, shared across all habits — using Freeze on a habit protects its streak for that day (max 1 use per week total)
+- **Reading minutes popup**: when tapping Yes on "Did I read today?", a popup appears asking how many minutes were read. Minutes are stored in localStorage and shown in a Reading Stats section below the check-in.
 
 ### 3. Points & Dollar Balance
 - Each habit kept = base points (= dollar value set for that habit)
@@ -78,7 +79,7 @@ Badges displayed on a profile/trophy page per habit.
 - Simple charts: weekly/monthly habit completion bar chart
 
 ### 7. Wishlist (Spending)
-- Add items with a name and price (e.g. "New shoes — S$80")
+- Add items with a name, price, and optional product URL (e.g. "New shoes — S$80")
 - Pre-loaded first wishlist item: Premium smartphone — S$2,000
 - Items show as locked until balance is sufficient
 - Mark as "Redeemed" — deducts price from dollar balance
@@ -113,7 +114,7 @@ Badges displayed on a profile/trophy page per habit.
 - `streaks` — id, habit_id, user_id, current_streak, longest_streak
 - `freeze_tokens` — id, user_id, week_start, used (boolean)
 - `badges` — id, habit_id, user_id, milestone_days, earned_at
-- `wishlist_items` — id, user_id, name, price, redeemed (boolean), redeemed_at
+- `wishlist_items` — id, user_id, name, price, url (optional), redeemed (boolean), redeemed_at
 - `share_links` — id, user_id, token (unique), created_at
 - `reactions` — id, share_link_id, emoji, reacted_at
 

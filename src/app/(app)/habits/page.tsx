@@ -1,15 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit } from '@/lib/types'
 import HabitForm from '@/components/HabitForm'
+import { applyStoredOrder, saveOrder } from '@/lib/habitOrder'
 
 export default function HabitsPage() {
   const [habits, setHabits] = useState<Habit[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null)
+  const dragIndex = useRef<number | null>(null)
   const supabase = createClient()
 
   async function loadHabits() {
@@ -20,7 +22,7 @@ export default function HabitsPage() {
     }
     if (!user) return
     const { data } = await supabase.from('habits').select('*').order('created_at', { ascending: true })
-    setHabits(data ?? [])
+    setHabits(applyStoredOrder(data ?? []))
     setLoading(false)
   }
 
@@ -35,6 +37,28 @@ export default function HabitsPage() {
   async function toggleActive(habit: Habit) {
     await supabase.from('habits').update({ is_active: !habit.is_active }).eq('id', habit.id)
     setHabits(h => h.map(x => x.id === habit.id ? { ...x, is_active: !x.is_active } : x))
+  }
+
+  function onDragStart(index: number) {
+    dragIndex.current = index
+  }
+
+  function onDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault()
+    const from = dragIndex.current
+    if (from === null || from === index) return
+    setHabits(prev => {
+      const next = [...prev]
+      const [item] = next.splice(from, 1)
+      next.splice(index, 0, item)
+      dragIndex.current = index
+      return next
+    })
+  }
+
+  function onDragEnd() {
+    dragIndex.current = null
+    setHabits(prev => { saveOrder(prev); return prev })
   }
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
@@ -56,19 +80,26 @@ export default function HabitsPage() {
       )}
 
       <div className="space-y-3">
-        {habits.map(habit => (
+        {habits.map((habit, index) => (
           <div
             key={habit.id}
-            className={`bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 ${!habit.is_active ? 'opacity-50' : ''}`}
+            draggable
+            onDragStart={() => onDragStart(index)}
+            onDragOver={e => onDragOver(e, index)}
+            onDragEnd={onDragEnd}
+            className={`bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 cursor-grab active:cursor-grabbing ${!habit.is_active ? 'opacity-50' : ''}`}
           >
             <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-gray-900 leading-snug">{habit.name}</p>
-                <div className="flex gap-3 mt-1 text-xs text-gray-500">
-                  <span>S${habit.dollar_value.toFixed(2)}/day</span>
-                  {habit.allowed_no_days_per_week > 0 && (
-                    <span>{habit.allowed_no_days_per_week} skip{habit.allowed_no_days_per_week > 1 ? 's' : ''}/week ok</span>
-                  )}
+              <div className="flex items-start gap-2 flex-1 min-w-0">
+                <span className="text-gray-300 text-base mt-0.5 select-none">⠿</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm text-gray-900 leading-snug">{habit.name}</p>
+                  <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                    <span>S${habit.dollar_value.toFixed(2)}/day</span>
+                    {habit.allowed_no_days_per_week > 0 && (
+                      <span>{habit.allowed_no_days_per_week} skip{habit.allowed_no_days_per_week > 1 ? 's' : ''}/week ok</span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">

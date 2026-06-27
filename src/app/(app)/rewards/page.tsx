@@ -11,7 +11,12 @@ export default function RewardsPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
   const [newPrice, setNewPrice] = useState('')
+  const [newUrl, setNewUrl] = useState('')
   const [saving, setSaving] = useState(false)
+  const [editItem, setEditItem] = useState<WishlistItem | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editPrice, setEditPrice] = useState('')
+  const [editUrl, setEditUrl] = useState('')
   const supabase = createClient()
 
   const load = useCallback(async () => {
@@ -53,10 +58,32 @@ export default function RewardsPage() {
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('wishlist_items').insert({ user_id: user.id, name: newName.trim(), price: parseFloat(newPrice) })
+    await supabase.from('wishlist_items').insert({ user_id: user.id, name: newName.trim(), price: parseFloat(newPrice), url: newUrl.trim() || null })
     setNewName('')
     setNewPrice('')
+    setNewUrl('')
     setShowAdd(false)
+    setSaving(false)
+    await load()
+  }
+
+  function openEdit(item: WishlistItem) {
+    setEditItem(item)
+    setEditName(item.name)
+    setEditPrice(String(item.price))
+    setEditUrl(item.url ?? '')
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editItem) return
+    setSaving(true)
+    await supabase.from('wishlist_items').update({
+      name: editName.trim(),
+      price: parseFloat(editPrice),
+      url: editUrl.trim() || null,
+    }).eq('id', editItem.id)
+    setEditItem(null)
     setSaving(false)
     await load()
   }
@@ -73,42 +100,49 @@ export default function RewardsPage() {
   const redeemed = items.filter(i => i.redeemed)
 
   return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-4 mt-2">
+    <div className="p-3">
+      <div className="flex items-center justify-between mb-2 mt-1">
         <p className="text-sm text-gray-500">Save up for something great</p>
         <button
           onClick={() => setShowAdd(true)}
-          className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold shadow-sm"
+          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold shadow-sm"
         >
           + Add
         </button>
       </div>
 
       {/* Balance */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-5 text-center">
-        <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">Your balance</p>
-        <p className="text-4xl font-extrabold text-emerald-700">S${balance.toFixed(2)}</p>
-        <p className="text-xs text-gray-400 mt-1">Earned from keeping your habits</p>
+      <div className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5 mb-2 text-center">
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Your balance</p>
+        <p className="text-3xl font-extrabold text-emerald-700">S${Math.round(balance)}</p>
+        <p className="text-xs text-gray-400">Earned from keeping your habits</p>
       </div>
 
       {available.length === 0 && (
         <p className="text-gray-400 text-center mt-8 text-sm">No rewards yet. Add something to save up for!</p>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {available.map(item => {
           const canRedeem = balance >= item.price
           const progress = Math.min(100, (balance / item.price) * 100)
           return (
-            <div key={item.id} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
-              <div className="flex items-start justify-between gap-2 mb-3">
+            <div key={item.id} className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5">
+              <div className="flex items-start justify-between gap-2 mb-1.5">
                 <div>
-                  <p className="font-semibold text-sm text-gray-900">{item.name}</p>
-                  <p className="text-emerald-700 font-extrabold text-lg">S${item.price.toFixed(2)}</p>
+                  {item.url ? (
+                    <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-sm text-gray-900 underline">{item.name}</a>
+                  ) : (
+                    <p className="font-semibold text-sm text-gray-900">{item.name}</p>
+                  )}
+                  <p className="text-emerald-700 font-extrabold text-base">S${Math.round(item.price)}</p>
                 </div>
-                <button onClick={() => deleteItem(item.id)} className="text-xs text-red-400 mt-1">✕</button>
+                <div className="flex gap-2 mt-1">
+                  <button onClick={() => openEdit(item)} className="text-xs text-gray-400">✏️</button>
+                  <button onClick={() => deleteItem(item.id)} className="text-xs text-red-400">✕</button>
+                </div>
               </div>
-              <div className="h-2 bg-gray-100 rounded-full mb-3 overflow-hidden">
+              <div className="h-1.5 bg-gray-100 rounded-full mb-2 overflow-hidden">
                 <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
               </div>
               <div className="flex items-center justify-between">
@@ -116,11 +150,11 @@ export default function RewardsPage() {
                 <button
                   onClick={() => redeem(item)}
                   disabled={!canRedeem}
-                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition ${
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
                     canRedeem ? 'bg-emerald-700 hover:bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   }`}
                 >
-                  {canRedeem ? '🎁 Redeem' : `Need S$${(item.price - balance).toFixed(2)} more`}
+                  {canRedeem ? '🎁 Redeem' : `Need S$${Math.round(item.price - balance)} more`}
                 </button>
               </div>
             </div>
@@ -138,16 +172,17 @@ export default function RewardsPage() {
                   <p className="text-sm font-medium line-through text-gray-400">{item.name}</p>
                   <p className="text-xs text-gray-400">{item.redeemed_at ? new Date(item.redeemed_at).toLocaleDateString('en-SG') : ''}</p>
                 </div>
-                <p className="text-gray-400 font-semibold text-sm">S${item.price.toFixed(2)}</p>
+                <p className="text-gray-400 font-semibold text-sm">S${Math.round(item.price)}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
+      {/* Add modal */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowAdd(false)}>
-          <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-10 shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-24 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-bold text-gray-900 mb-5">Add Reward</h2>
             <form onSubmit={addItem} className="space-y-4">
               <input
@@ -168,10 +203,59 @@ export default function RewardsPage() {
                 required
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
+              <input
+                type="url"
+                placeholder="Product URL (optional)"
+                value={newUrl}
+                onChange={e => setNewUrl(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+              />
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold disabled:opacity-50">
                   {saving ? 'Saving...' : 'Add'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit modal */}
+      {editItem && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setEditItem(null)}>
+          <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-24 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-900 mb-5">Edit Reward</h2>
+            <form onSubmit={saveEdit} className="space-y-4">
+              <input
+                type="text"
+                placeholder="e.g. New headphones"
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+              />
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="Price in SGD"
+                value={editPrice}
+                onChange={e => setEditPrice(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+              />
+              <input
+                type="url"
+                placeholder="Product URL (optional)"
+                value={editUrl}
+                onChange={e => setEditUrl(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+              />
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditItem(null)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
+                <button type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold disabled:opacity-50">
+                  {saving ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </form>

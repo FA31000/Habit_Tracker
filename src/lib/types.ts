@@ -38,6 +38,7 @@ export type WishlistItem = {
   user_id: string
   name: string
   price: number
+  url: string | null
   redeemed: boolean
   redeemed_at: string | null
 }

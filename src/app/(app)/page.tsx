@@ -5,19 +5,33 @@ import { createClient } from '@/lib/supabase/client'
 import type { Habit, Checkin } from '@/lib/types'
 import { DEFAULT_HABITS } from '@/lib/defaultHabits'
 import { getStreakMultiplier, BADGE_MILESTONES } from '@/lib/types'
+import { applyStoredOrder } from '@/lib/habitOrder'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze'>
+
+const MIN_DATE = '2026-06-27'
 
 function todayDate() {
   return new Date().toISOString().split('T')[0]
 }
 
-function getWeekStart() {
-  const d = new Date()
+function getWeekStart(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00')
   const day = d.getDay()
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-  const monday = new Date(d.setDate(diff))
+  const monday = new Date(d)
+  monday.setDate(diff)
   return monday.toISOString().split('T')[0]
+}
+
+function formatDate(dateStr: string) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-SG', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+function addDays(dateStr: string, days: number) {
+  const d = new Date(dateStr + 'T00:00:00')
+  d.setDate(d.getDate() + days)
+  return d.toISOString().split('T')[0]
 }
 
 export default function CheckInPage() {
@@ -29,9 +43,16 @@ export default function CheckInPage() {
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
+  const [weeklyNoCounts, setWeeklyNoCounts] = useState<Record<string, number>>({})
+  const [selectedDate, setSelectedDate] = useState(todayDate)
+  const [readingPopup, setReadingPopup] = useState(false)
+  const [readingMinutesInput, setReadingMinutesInput] = useState('')
+  const [readingMinutes, setReadingMinutes] = useState<Record<string, number>>({})
+  const [pendingReadingHabitId, setPendingReadingHabitId] = useState<string | null>(null)
+  const [streaks, setStreaks] = useState<Record<string, number>>({})
   const supabase = createClient()
   const today = todayDate()
-  const weekStart = getWeekStart()
+  const weekStart = getWeekStart(selectedDate)
 
   const load = useCallback(async () => {
     let { data: { user } } = await supabase.auth.getUser()
@@ -48,11 +69,18 @@ export default function CheckInPage() {
     }
 
     const { data: habitsData } = await supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true })
-    const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', today)
+    const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate)
     const { data: freezeData } = await supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single()
     const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response').eq('user_id', user.id).eq('response', 'yes')
     const { data: streaksData } = await supabase.from('streaks').select('habit_id, current_streak').eq('user_id', user.id)
     const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
+
+    const weekEndDate = new Date(weekStart)
+    weekEndDate.setDate(weekEndDate.getDate() + 6)
+    const { data: weekNoData } = await supabase.from('checkins').select('habit_id').eq('user_id', user.id).eq('response', 'no').gte('date', weekStart).lte('date', weekEndDate.toISOString().split('T')[0])
+    const noCounts: Record<string, number> = {}
+    ;(weekNoData ?? []).forEach((c: { habit_id: string }) => { noCounts[c.habit_id] = (noCounts[c.habit_id] ?? 0) + 1 })
+    setWeeklyNoCounts(noCounts)
 
     const habitMap = new Map((habitsData ?? []).map((h: Habit) => [h.id, h]))
     const streakMap = new Map((streaksData ?? []).map((s: { habit_id: string; current_streak: number }) => [s.habit_id, s.current_streak]))
@@ -64,7 +92,8 @@ export default function CheckInPage() {
     })
     const spent = (redeemed ?? []).reduce((sum: number, r: { price: number }) => sum + r.price, 0)
 
-    setHabits(habitsData ?? [])
+    setStreaks(Object.fromEntries(streakMap))
+    setHabits(applyStoredOrder(habitsData ?? []))
     setBalance(Math.max(0, earned - spent))
     const map: CheckinMap = {}
     ;(checkinsData ?? []).forEach((c: Checkin) => { map[c.habit_id] = c.response })
@@ -72,19 +101,70 @@ export default function CheckInPage() {
     setFreezeUsed(freezeData?.used ?? false)
     setDone((habitsData ?? []).every((h: Habit) => map[h.id]))
     setLoading(false)
-  }, [today, weekStart])
+  }, [selectedDate, weekStart])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { setLoading(true); setCheckins({}); load() }, [load])
+
+  useEffect(() => {
+    const stored = localStorage.getItem('reading_minutes')
+    if (stored) setReadingMinutes(JSON.parse(stored))
+  }, [])
+
+  const readingHabit = habits.find(h => h.name.toLowerCase().includes('read'))
+
+  function saveReadingMinutes(habitId: string, minutes: number) {
+    const updated = { ...readingMinutes, [habitId + '_' + selectedDate]: minutes }
+    setReadingMinutes(updated)
+    localStorage.setItem('reading_minutes', JSON.stringify(updated))
+  }
+
+  function confirmReadingMinutes() {
+    const mins = parseInt(readingMinutesInput)
+    if (!isNaN(mins) && mins > 0 && pendingReadingHabitId) {
+      saveReadingMinutes(pendingReadingHabitId, mins)
+    }
+    setReadingPopup(false)
+    setReadingMinutesInput('')
+    if (pendingReadingHabitId) doAnswer(pendingReadingHabitId, 'yes')
+    setPendingReadingHabitId(null)
+  }
 
   async function answer(habitId: string, response: 'yes' | 'no' | 'freeze') {
+    if (response === 'yes' && readingHabit && habitId === readingHabit.id && checkins[habitId] !== 'yes') {
+      setPendingReadingHabitId(habitId)
+      setReadingMinutesInput('')
+      setReadingPopup(true)
+      return
+    }
+    await doAnswer(habitId, response)
+  }
+
+  async function doAnswer(habitId: string, response: 'yes' | 'no' | 'freeze') {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+
+    // If clicking the already-selected option, cancel it
+    if (checkins[habitId] === response) {
+      await supabase.from('checkins').delete().eq('habit_id', habitId).eq('user_id', user.id).eq('date', selectedDate)
+      if (response === 'freeze') {
+        await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
+        setFreezeUsed(false)
+      }
+      setCheckins(prev => {
+        const next = { ...prev }
+        delete next[habitId]
+        return next
+      })
+      setDone(false)
+      return
+    }
+
     if (response === 'freeze') {
       if (freezeUsed) return
       await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: true })
       setFreezeUsed(true)
     }
-    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: today, response })
+    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: selectedDate, response })
     setCheckins(prev => {
       const next = { ...prev, [habitId]: response }
       if (habits.every(h => next[h.id])) setDone(false)
@@ -133,47 +213,84 @@ export default function CheckInPage() {
   const allAnswered = answered === habits.length
 
   return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-4 mt-2">
+    <div className="p-3">
+      {/* Date navigation */}
+      <div className="flex items-center justify-between mb-2 mt-1">
+        <button
+          onClick={() => { setSelectedDate(prev => addDays(prev, -1)); setDone(false) }}
+          disabled={selectedDate <= MIN_DATE}
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
+        >
+          ‹
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-gray-800">{formatDate(selectedDate)}</p>
+          {selectedDate !== today && (
+            <button onClick={() => { setSelectedDate(today); setDone(false) }} className="text-xs text-emerald-600 underline mt-0.5">Back to today</button>
+          )}
+        </div>
+        <button
+          onClick={() => { setSelectedDate(prev => addDays(prev, 1)); setDone(false) }}
+          disabled={selectedDate >= today}
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
+        >
+          ›
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between mb-2 mt-1">
         <p className="text-sm text-gray-500">{answered}/{habits.length} answered</p>
         <div className="flex items-center gap-3">
-          {!freezeUsed
-            ? <span className="text-xs text-amber-600 font-medium">❄️ 1 freeze left</span>
-            : <span className="text-xs text-gray-400">❄️ Freeze used</span>}
           <span className="text-sm font-bold text-emerald-700">S${balance.toFixed(2)}</span>
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {habits.map(habit => {
           const response = checkins[habit.id]
           return (
-            <div key={habit.id} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
-              <div className="flex items-center justify-between mb-3">
+            <div key={habit.id} className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5">
+              <div className="flex items-center justify-between mb-2">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <span className="text-xs text-emerald-700 font-medium">+S${habit.dollar_value.toFixed(2)}</span>
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={() => answer(habit.id, 'yes')}
-                  className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
-                    response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'
-                  }`}
-                >
-                  ✅ Yes
-                </button>
-                <button
-                  onClick={() => answer(habit.id, 'no')}
-                  className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
-                    response === 'no' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 active:bg-red-100'
-                  }`}
-                >
-                  ❌ No
-                </button>
+                <div className="flex-1 flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => answer(habit.id, 'yes')}
+                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${
+                      response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'
+                    }`}
+                  >
+                    ✅ Yes
+                  </button>
+                  {(() => {
+                    const streak = streaks[habit.id] ?? 0
+                    return <span className="text-xs text-gray-400">🔥 {streak} day streak</span>
+                  })()}
+                </div>
+                <div className="flex-1 flex flex-col items-center gap-0.5">
+                  <button
+                    onClick={() => answer(habit.id, 'no')}
+                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${
+                      response === 'no' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 active:bg-red-100'
+                    }`}
+                  >
+                    ❌ No
+                  </button>
+                  {(() => {
+                    const used = weeklyNoCounts[habit.id] ?? 0
+                    const left = habit.allowed_no_days_per_week - used
+                    return (
+                      <span className="text-xs text-gray-400">{left} no{left === 1 ? '' : 's'} left this week</span>
+                    )
+                  })()}
+                </div>
+                <div className="flex-1 flex flex-col items-center gap-0.5">
                 <button
                   onClick={() => answer(habit.id, 'freeze')}
                   disabled={freezeUsed && response !== 'freeze'}
-                  className={`flex-1 py-2 rounded-xl text-sm font-semibold transition ${
+                  className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${
                     response === 'freeze' ? 'bg-blue-500 text-white'
                     : freezeUsed ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
                     : 'bg-gray-100 text-amber-600 active:bg-blue-100'
@@ -181,6 +298,8 @@ export default function CheckInPage() {
                 >
                   ❄️ Freeze
                 </button>
+                <span className="text-xs text-gray-400">{freezeUsed ? '0 freezes left' : '1 freeze left'}</span>
+                </div>
               </div>
             </div>
           )
@@ -209,6 +328,40 @@ export default function CheckInPage() {
               🏅 New badge: {b}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Reading minutes popup */}
+      {readingPopup && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <p className="text-base font-bold text-gray-900 mb-1">📚 How many minutes did you read?</p>
+            <p className="text-sm text-gray-500 mb-4">Enter 0 to skip tracking.</p>
+            <input
+              type="number"
+              min="0"
+              value={readingMinutesInput}
+              onChange={e => setReadingMinutesInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && confirmReadingMinutes()}
+              placeholder="e.g. 30"
+              autoFocus
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setReadingPopup(false); setReadingMinutesInput(''); setPendingReadingHabitId(null) }}
+                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmReadingMinutes}
+                className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold text-sm"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
