@@ -83,26 +83,52 @@ export default function StatsPage() {
 
     const { data: habits } = await supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
     const { data: allCheckins } = await supabase.from('checkins').select('*').eq('user_id', user.id)
-    const { data: streaks } = await supabase.from('streaks').select('*').eq('user_id', user.id)
     const { data: badges } = await supabase.from('badges').select('*').eq('user_id', user.id)
     const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
-    const streakMap = new Map((streaks ?? []).map(s => [s.habit_id, s]))
     const badgeMap = new Map<string, number[]>()
     ;(badges ?? []).forEach(b => {
       if (!badgeMap.has(b.habit_id)) badgeMap.set(b.habit_id, [])
       badgeMap.get(b.habit_id)!.push(b.milestone_days)
     })
 
+    const today = new Date().toISOString().split('T')[0]
+
+    function computeStreaks(habitId: string): { current: number; longest: number } {
+      const checkins = (allCheckins ?? []).filter(c => c.habit_id === habitId)
+      const byDate: Record<string, string> = {}
+      checkins.forEach(c => { byDate[c.date] = c.response })
+
+      // current streak: go backwards from yesterday
+      let current = 0
+      const d = new Date(today)
+      d.setDate(d.getDate() - 1)
+      while (true) {
+        const dateStr = d.toISOString().split('T')[0]
+        const r = byDate[dateStr]
+        if (r === 'yes' || r === 'freeze') { current++; d.setDate(d.getDate() - 1) } else break
+      }
+
+      // longest streak: scan all dates in order
+      const dates = Object.keys(byDate).sort()
+      let longest = 0, run = 0
+      for (const date of dates) {
+        const r = byDate[date]
+        if (r === 'yes' || r === 'freeze') { run++; longest = Math.max(longest, run) } else { run = 0 }
+      }
+
+      return { current, longest }
+    }
+
     const habitStats: HabitStats[] = applyStoredOrder(habits ?? []).map(habit => {
       const hc = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
       const kept = hc.filter(c => c.response === 'yes').length
       const total = hc.length
-      const streak = streakMap.get(habit.id)
+      const { current, longest } = computeStreaks(habit.id)
       return {
         habit,
-        currentStreak: streak?.current_streak ?? 0,
-        longestStreak: streak?.longest_streak ?? 0,
+        currentStreak: current,
+        longestStreak: longest,
         totalKept: kept,
         totalDays: total,
         successRate: total > 0 ? Math.round((kept / total) * 100) : 0,
@@ -112,16 +138,16 @@ export default function StatsPage() {
 
     const yesCheckins = (allCheckins ?? []).filter(c => c.response === 'yes')
     const habitMap = new Map((habits ?? []).map(h => [h.id, h.dollar_value]))
-    const streakMapSimple = new Map((streaks ?? []).map(s => [s.habit_id, s.current_streak]))
+    const streaksByHabit = new Map(habitStats.map(s => [s.habit.id, s.currentStreak]))
     let earned = 0
     yesCheckins.forEach(c => {
       const dv = habitMap.get(c.habit_id) ?? 0
-      const s = streakMapSimple.get(c.habit_id) ?? 0
+      const s = streaksByHabit.get(c.habit_id) ?? 0
       earned += dv * (s >= 365 ? 3 : s >= 30 ? 2 : s >= 7 ? 1.5 : 1)
     })
     const spent = (redeemed ?? []).reduce((s, r) => s + r.price, 0)
     const uniqueDays = new Set((allCheckins ?? []).map(c => c.date)).size
-    const best = Math.max(0, ...(streaks ?? []).map(s => s.longest_streak))
+    const best = Math.max(0, ...habitStats.map(s => s.longestStreak))
 
     const days: DayBar[] = []
     for (let i = 6; i >= 0; i--) {
