@@ -11,7 +11,9 @@ export default function HabitsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null)
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
   const dragIndex = useRef<number | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
   async function loadHabits() {
@@ -39,8 +41,10 @@ export default function HabitsPage() {
     setHabits(h => h.map(x => x.id === habit.id ? { ...x, is_active: !x.is_active } : x))
   }
 
+  // Mouse drag handlers
   function onDragStart(index: number) {
     dragIndex.current = index
+    setDraggingIndex(index)
   }
 
   function onDragOver(e: React.DragEvent, index: number) {
@@ -52,14 +56,59 @@ export default function HabitsPage() {
       const [item] = next.splice(from, 1)
       next.splice(index, 0, item)
       dragIndex.current = index
+      setDraggingIndex(index)
       return next
     })
   }
 
   function onDragEnd() {
     dragIndex.current = null
+    setDraggingIndex(null)
     setHabits(prev => { saveOrder(prev); return prev })
   }
+
+  // Touch drag handlers
+  function onTouchStart(index: number) {
+    dragIndex.current = index
+    setDraggingIndex(index)
+  }
+
+  function onTouchEnd() {
+    dragIndex.current = null
+    setDraggingIndex(null)
+    setHabits(prev => { saveOrder(prev); return prev })
+  }
+
+  // Register non-passive touchmove so preventDefault() actually works
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    function handleTouchMove(e: TouchEvent) {
+      if (dragIndex.current === null) return
+      e.preventDefault()
+      const touch = e.touches[0]
+      const children = Array.from(el!.children) as HTMLElement[]
+      for (let i = 0; i < children.length; i++) {
+        const rect = children[i].getBoundingClientRect()
+        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+          const from = dragIndex.current!
+          if (i !== from) {
+            setHabits(prev => {
+              const next = [...prev]
+              const [item] = next.splice(from, 1)
+              next.splice(i, 0, item)
+              dragIndex.current = i
+              setDraggingIndex(i)
+              return next
+            })
+          }
+          break
+        }
+      }
+    }
+    el.addEventListener('touchmove', handleTouchMove, { passive: false })
+    return () => el.removeEventListener('touchmove', handleTouchMove)
+  }, [loading])
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
@@ -79,7 +128,7 @@ export default function HabitsPage() {
         <p className="text-gray-400 text-center mt-12 text-sm">No habits yet. Add your first one!</p>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-3" ref={listRef}>
         {habits.map((habit, index) => (
           <div
             key={habit.id}
@@ -87,7 +136,9 @@ export default function HabitsPage() {
             onDragStart={() => onDragStart(index)}
             onDragOver={e => onDragOver(e, index)}
             onDragEnd={onDragEnd}
-            className={`bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 cursor-grab active:cursor-grabbing ${!habit.is_active ? 'opacity-50' : ''}`}
+            onTouchStart={() => onTouchStart(index)}
+            onTouchEnd={onTouchEnd}
+            className={`bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 cursor-grab active:cursor-grabbing transition-opacity ${!habit.is_active ? 'opacity-50' : ''} ${draggingIndex === index ? 'ring-2 ring-emerald-400' : ''}`}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-start gap-2 flex-1 min-w-0">
