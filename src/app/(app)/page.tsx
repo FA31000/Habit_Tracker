@@ -17,7 +17,7 @@ type PopupAnswers = Record<string, string[] | string>
 const MIN_DATE = '2026-06-27'
 
 function todayDate() {
-  return new Date().toISOString().split('T')[0]
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
 }
 
 function getWeekStart(dateStr: string) {
