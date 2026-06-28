@@ -11,9 +11,6 @@ export default function HabitsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null)
-  const [draggingIndex, setDraggingIndex] = useState<number | null>(null)
-  const dragIndex = useRef<number | null>(null)
-  const listRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
   async function loadHabits() {
@@ -41,74 +38,17 @@ export default function HabitsPage() {
     setHabits(h => h.map(x => x.id === habit.id ? { ...x, is_active: !x.is_active } : x))
   }
 
-  // Mouse drag handlers
-  function onDragStart(index: number) {
-    dragIndex.current = index
-    setDraggingIndex(index)
-  }
-
-  function onDragOver(e: React.DragEvent, index: number) {
-    e.preventDefault()
-    const from = dragIndex.current
-    if (from === null || from === index) return
+  function moveHabit(index: number, direction: -1 | 1) {
+    const newIndex = index + direction
+    if (newIndex < 0 || newIndex >= habits.length) return
     setHabits(prev => {
       const next = [...prev]
-      const [item] = next.splice(from, 1)
-      next.splice(index, 0, item)
-      dragIndex.current = index
-      setDraggingIndex(index)
+      const [item] = next.splice(index, 1)
+      next.splice(newIndex, 0, item)
+      saveOrder(next)
       return next
     })
   }
-
-  function onDragEnd() {
-    dragIndex.current = null
-    setDraggingIndex(null)
-    setHabits(prev => { saveOrder(prev); return prev })
-  }
-
-  // Touch drag handlers
-  function onTouchStart(index: number) {
-    dragIndex.current = index
-    setDraggingIndex(index)
-  }
-
-  function onTouchEnd() {
-    dragIndex.current = null
-    setDraggingIndex(null)
-    setHabits(prev => { saveOrder(prev); return prev })
-  }
-
-  // Register non-passive touchmove so preventDefault() actually works
-  useEffect(() => {
-    const el = listRef.current
-    if (!el) return
-    function handleTouchMove(e: TouchEvent) {
-      if (dragIndex.current === null) return
-      e.preventDefault()
-      const touch = e.touches[0]
-      const children = Array.from(el!.children) as HTMLElement[]
-      for (let i = 0; i < children.length; i++) {
-        const rect = children[i].getBoundingClientRect()
-        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-          const from = dragIndex.current!
-          if (i !== from) {
-            setHabits(prev => {
-              const next = [...prev]
-              const [item] = next.splice(from, 1)
-              next.splice(i, 0, item)
-              dragIndex.current = i
-              setDraggingIndex(i)
-              return next
-            })
-          }
-          break
-        }
-      }
-    }
-    el.addEventListener('touchmove', handleTouchMove, { passive: false })
-    return () => el.removeEventListener('touchmove', handleTouchMove)
-  }, [loading])
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
@@ -128,26 +68,37 @@ export default function HabitsPage() {
         <p className="text-gray-400 text-center mt-12 text-sm">No habits yet. Add your first one!</p>
       )}
 
-      <div className="space-y-3" ref={listRef}>
+      <div className="space-y-3">
         {habits.map((habit, index) => (
           <div
             key={habit.id}
-            draggable
-            onDragStart={() => onDragStart(index)}
-            onDragOver={e => onDragOver(e, index)}
-            onDragEnd={onDragEnd}
-            onTouchStart={() => onTouchStart(index)}
-            onTouchEnd={onTouchEnd}
-            className={`bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 cursor-grab active:cursor-grabbing transition-opacity ${!habit.is_active ? 'opacity-50' : ''} ${draggingIndex === index ? 'ring-2 ring-emerald-400' : ''}`}
+            className={`bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 ${!habit.is_active ? 'opacity-50' : ''}`}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-start gap-2 flex-1 min-w-0">
-                <span className="text-gray-300 text-base mt-0.5 select-none">⠿</span>
+                <div className="flex flex-col gap-0.5 shrink-0 mt-0.5">
+                  <button
+                    onClick={() => moveHabit(index, -1)}
+                    disabled={index === 0}
+                    className="text-gray-300 disabled:opacity-20 hover:text-gray-500 leading-none text-xs px-0.5"
+                  >▲</button>
+                  <button
+                    onClick={() => moveHabit(index, 1)}
+                    disabled={index === habits.length - 1}
+                    className="text-gray-300 disabled:opacity-20 hover:text-gray-500 leading-none text-xs px-0.5"
+                  >▼</button>
+                </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-gray-900 leading-snug">{habit.name}</p>
                   {habit.description && (
                     <p className="text-xs text-gray-500 mt-0.5 leading-snug">{habit.description}</p>
                   )}
+                  <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                    <span>S${habit.dollar_value.toFixed(2)}/day</span>
+                    {habit.allowed_no_days_per_week > 0 && (
+                      <span>{habit.allowed_no_days_per_week} skip{habit.allowed_no_days_per_week > 1 ? 's' : ''}/week ok</span>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">

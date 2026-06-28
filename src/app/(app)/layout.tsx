@@ -1,4 +1,5 @@
 import BottomNav from '@/components/BottomNav'
+import BalanceBadge from '@/components/BalanceBadge'
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -9,12 +10,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="pointer-events-none absolute top-4 -right-2 h-14 w-14 rounded-full bg-emerald-400/20" />
         <div className="pointer-events-none absolute -bottom-8 -left-4 h-24 w-24 rounded-full bg-teal-400/10" />
 
-        <div className="relative flex items-center gap-2">
-          <span className="text-2xl">🌱</span>
-          <div>
-            <h1 className="text-lg font-black tracking-tight leading-none">Habit Tracker</h1>
-            <p className="text-emerald-200/80 text-xs font-medium mt-0.5">Build the new FA</p>
+        <div className="relative flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🌱</span>
+            <div>
+              <h1 className="text-lg font-black tracking-tight leading-none">Habit Tracker</h1>
+              <p className="text-emerald-200/80 text-xs font-medium mt-0.5">Build the new FA</p>
+            </div>
           </div>
+          <div className="mr-24"><BalanceBadge /></div>
         </div>
       </header>
 

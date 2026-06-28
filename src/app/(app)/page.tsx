@@ -346,9 +346,8 @@ export default function CheckInPage() {
         >›</button>
       </div>
 
-      <div className="flex items-center justify-between mb-2 mt-1">
+      <div className="flex items-center mb-2 mt-1">
         <p className="text-sm text-gray-500">{answered}/{habits.length} answered</p>
-        <span className="text-sm font-bold text-emerald-700">{appConfig.currencySymbol}{balance.toFixed(2)}</span>
       </div>
 
       <div className="space-y-2">

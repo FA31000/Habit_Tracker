@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { WishlistItem } from '@/lib/types'
 
@@ -28,10 +28,6 @@ export default function RewardsPage() {
   const [editName, setEditName] = useState('')
   const [editPrice, setEditPrice] = useState('')
   const [editUrl, setEditUrl] = useState('')
-  const dragId = useRef<string | null>(null)
-  const dragOverId = useRef<string | null>(null)
-  const [draggingId, setDraggingId] = useState<string | null>(null)
-  const listRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
   const load = useCallback(async () => {
@@ -114,79 +110,17 @@ export default function RewardsPage() {
     })
   }
 
-  function onDragStart(id: string) {
-    dragId.current = id
-    setDraggingId(id)
-  }
-
-  function onDragOver(e: React.DragEvent, id: string) {
-    e.preventDefault()
-    dragOverId.current = id
-  }
-
-  function onDrop() {
-    const from = dragId.current
-    const to = dragOverId.current
-    if (!from || !to || from === to) return
+  function moveItem(index: number, direction: -1 | 1) {
+    const newIndex = index + direction
     setItems(prev => {
+      if (newIndex < 0 || newIndex >= prev.length) return prev
       const next = [...prev]
-      const fromIdx = next.findIndex(i => i.id === from)
-      const toIdx = next.findIndex(i => i.id === to)
-      const [moved] = next.splice(fromIdx, 1)
-      next.splice(toIdx, 0, moved)
+      const [item] = next.splice(index, 1)
+      next.splice(newIndex, 0, item)
       localStorage.setItem(ORDER_KEY, JSON.stringify(next.map(i => i.id)))
       return next
     })
-    dragId.current = null
-    dragOverId.current = null
-    setDraggingId(null)
   }
-
-  function onTouchStartReward(id: string) {
-    dragId.current = id
-    setDraggingId(id)
-  }
-
-  function onTouchEndReward() {
-    dragId.current = null
-    dragOverId.current = null
-    setDraggingId(null)
-  }
-
-  // Register non-passive touchmove so preventDefault() actually works
-  useEffect(() => {
-    const el = listRef.current
-    if (!el) return
-    function handleTouchMove(e: TouchEvent) {
-      if (!dragId.current) return
-      e.preventDefault()
-      const touch = e.touches[0]
-      const from = dragId.current
-      const children = Array.from(el!.children) as HTMLElement[]
-      for (let i = 0; i < children.length; i++) {
-        const rect = children[i].getBoundingClientRect()
-        if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
-          const toId = children[i].getAttribute('data-id')
-          if (toId && toId !== from) {
-            setItems(prev => {
-              const next = [...prev]
-              const fromIdx = next.findIndex(x => x.id === from)
-              const toIdx = next.findIndex(x => x.id === toId)
-              const [moved] = next.splice(fromIdx, 1)
-              next.splice(toIdx, 0, moved)
-              dragId.current = toId
-              setDraggingId(toId)
-              localStorage.setItem(ORDER_KEY, JSON.stringify(next.map(x => x.id)))
-              return next
-            })
-          }
-          break
-        }
-      }
-    }
-    el.addEventListener('touchmove', handleTouchMove, { passive: false })
-    return () => el.removeEventListener('touchmove', handleTouchMove)
-  }, [loading])
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
@@ -216,25 +150,29 @@ export default function RewardsPage() {
         <p className="text-gray-400 text-center mt-8 text-sm">No rewards yet. Add something to save up for!</p>
       )}
 
-      <div className="space-y-2" ref={listRef}>
-        {available.map(item => {
+      <div className="space-y-2">
+        {available.map((item, index) => {
           const canRedeem = balance >= item.price
           const progress = Math.min(100, (balance / item.price) * 100)
           return (
             <div
               key={item.id}
-              data-id={item.id}
-              draggable
-              onDragStart={() => onDragStart(item.id)}
-              onDragOver={e => onDragOver(e, item.id)}
-              onDrop={onDrop}
-              onTouchStart={() => onTouchStartReward(item.id)}
-              onTouchEnd={onTouchEndReward}
-              className={`bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5 cursor-grab active:cursor-grabbing transition-opacity ${draggingId === item.id ? 'ring-2 ring-emerald-400' : ''}`}
+              className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5"
             >
               <div className="flex items-start justify-between gap-2 mb-1.5">
                 <div className="flex items-start gap-2">
-                  <span className="text-gray-300 mt-0.5 select-none">⠿</span>
+                  <div className="flex flex-col gap-0.5 shrink-0 mt-0.5">
+                    <button
+                      onClick={() => moveItem(index, -1)}
+                      disabled={index === 0}
+                      className="text-gray-300 disabled:opacity-20 hover:text-gray-500 leading-none text-xs px-0.5"
+                    >▲</button>
+                    <button
+                      onClick={() => moveItem(index, 1)}
+                      disabled={index === available.length - 1}
+                      className="text-gray-300 disabled:opacity-20 hover:text-gray-500 leading-none text-xs px-0.5"
+                    >▼</button>
+                  </div>
                   <div>
                     {item.url ? (
                       <a href={item.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-sm text-gray-900 underline">{item.name}</a>

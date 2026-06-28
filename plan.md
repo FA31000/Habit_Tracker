@@ -24,7 +24,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Did I read?
   - Did I sleep 8 hours or more?
 - User can add, edit, and delete habits
-- Drag-and-drop reordering on the Habits page; order persisted in localStorage; touch-drag supported on mobile
+- Up/down arrow buttons on each habit to reorder; order persisted in localStorage
 - **Dynamic app icon color** (Android home screen) changes based on your longest active streak, like Duolingo:
   - ⚫ Default — no streak yet
   - 🔘 Grey — 5+ day streak
@@ -64,6 +64,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Days 30–364: 2x
   - Days 365+: 3x
 - Total balance shown in the configured currency symbol (default: S$)
+- Balance is displayed in the top green banner on every page (always visible)
 - Balance increases with daily check-ins, decreases when wishlist items are redeemed
 
 ### 4. Streaks
@@ -97,7 +98,7 @@ Badges displayed on a profile/trophy page per habit.
 - Pre-loaded first wishlist item: Premium smartphone — S$2,000
 - Items show as locked until balance is sufficient
 - Mark as "Redeemed" — deducts price from dollar balance
-- Drag-and-drop reordering of available rewards; order persisted in localStorage; touch-drag supported on mobile
+- Up/down arrow buttons on each reward to reorder; order persisted in localStorage
 - History of redeemed items
 
 ### 8. Accountability Partner
