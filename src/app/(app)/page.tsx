@@ -31,7 +31,7 @@ function formatDate(dateStr: string) {
 function addDays(dateStr: string, days: number) {
   const d = new Date(dateStr + 'T00:00:00')
   d.setDate(d.getDate() + days)
-  return d.toISOString().split('T')[0]
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
 }
 
 export default function CheckInPage() {
@@ -77,8 +77,7 @@ export default function CheckInPage() {
     const { data: habitsData } = await supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true })
     const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate)
     const { data: freezeData } = await supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single()
-    const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response').eq('user_id', user.id).eq('response', 'yes')
-    const { data: streaksData } = await supabase.from('streaks').select('habit_id, current_streak').eq('user_id', user.id)
+    const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
     const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
     const weekEndDate = new Date(weekStart)
@@ -88,18 +87,46 @@ export default function CheckInPage() {
     ;(weekNoData ?? []).forEach((c: { habit_id: string }) => { noCounts[c.habit_id] = (noCounts[c.habit_id] ?? 0) + 1 })
     setWeeklyNoCounts(noCounts)
 
+    // Group checkins by habit_id for streak computation
+    const checkinsByHabit: Record<string, Record<string, string>> = {}
+    ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
+      if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = {}
+      checkinsByHabit[c.habit_id][c.date] = c.response
+    })
+
+    // Compute streak from checkin history: count consecutive days before selectedDate with yes/freeze
+    function computeStreak(habitId: string): number {
+      const byDate = checkinsByHabit[habitId] ?? {}
+      let streak = 0
+      const d = new Date(selectedDate)
+      d.setDate(d.getDate() - 1)
+      while (true) {
+        const dateStr = d.toISOString().split('T')[0]
+        const r = byDate[dateStr]
+        if (r === 'yes' || r === 'freeze') {
+          streak++
+          d.setDate(d.getDate() - 1)
+        } else {
+          break
+        }
+      }
+      return streak
+    }
+
     const habitMap = new Map((habitsData ?? []).map((h: Habit) => [h.id, h]))
-    const streakMap = new Map((streaksData ?? []).map((s: { habit_id: string; current_streak: number }) => [s.habit_id, s.current_streak]))
+    const computedStreaks: Record<string, number> = {}
+    ;(habitsData ?? []).forEach((h: Habit) => { computedStreaks[h.id] = computeStreak(h.id) })
+
     const cfg = loadAppConfig()
     let earned = 0
-    ;(allCheckins ?? []).forEach((c: { habit_id: string }) => {
+    ;(allCheckins ?? []).filter((c: { response: string }) => c.response === 'yes').forEach((c: { habit_id: string }) => {
       const habit = habitMap.get(c.habit_id)
-      const streak = streakMap.get(c.habit_id) ?? 0
+      const streak = computedStreaks[c.habit_id] ?? 0
       if (habit) earned += habit.dollar_value * getStreakMultiplier(streak, cfg)
     })
     const spent = (redeemed ?? []).reduce((sum: number, r: { price: number }) => sum + r.price, 0)
 
-    setStreaks(Object.fromEntries(streakMap))
+    setStreaks(computedStreaks)
     setHabits(applyStoredOrder(habitsData ?? []))
     setBalance(Math.max(0, earned - spent))
     const map: CheckinMap = {}
