@@ -160,14 +160,29 @@ export default function SettingsPage() {
           Get a push notification to remind you to check in each day.
         </p>
 
-        <div className="flex items-center gap-3 mb-4">
-          <label className="text-sm text-gray-500">Remind me at</label>
-          <input
-            type="time"
-            value={reminderTime}
-            onChange={e => saveReminderTime(e.target.value)}
-            className="bg-gray-100 text-gray-900 rounded-xl px-3 py-2 border border-gray-200 text-sm focus:outline-none focus:border-emerald-600"
-          />
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <label className="text-sm text-gray-500 shrink-0">Remind me at</label>
+          <div className="flex items-center gap-1">
+            <select
+              value={reminderTime.split(':')[0]}
+              onChange={e => saveReminderTime(`${e.target.value}:${reminderTime.split(':')[1]}`)}
+              className="bg-gray-100 text-gray-900 rounded-xl px-3 py-2 border border-gray-200 text-sm focus:outline-none focus:border-emerald-600"
+            >
+              {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="text-gray-500 font-bold">:</span>
+            <select
+              value={reminderTime.split(':')[1]}
+              onChange={e => saveReminderTime(`${reminderTime.split(':')[0]}:${e.target.value}`)}
+              className="bg-gray-100 text-gray-900 rounded-xl px-3 py-2 border border-gray-200 text-sm focus:outline-none focus:border-emerald-600"
+            >
+              {['00', '15', '30', '45'].map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
           {savingTime && <span className="text-xs text-gray-400">Saving...</span>}
         </div>
 
@@ -231,33 +246,29 @@ export default function SettingsPage() {
         </p>
         <div className="space-y-3">
           {([
-            { label: `After ${appConfig.streakTier1Days} days`, daysKey: 'streakTier1Days' as const, multKey: 'streakTier1Multiplier' as const },
-            { label: `After ${appConfig.streakTier2Days} days`, daysKey: 'streakTier2Days' as const, multKey: 'streakTier2Multiplier' as const },
-            { label: `After ${appConfig.streakTier3Days} days`, daysKey: 'streakTier3Days' as const, multKey: 'streakTier3Multiplier' as const },
+            { daysKey: 'streakTier1Days' as const, multKey: 'streakTier1Multiplier' as const },
+            { daysKey: 'streakTier2Days' as const, multKey: 'streakTier2Multiplier' as const },
+            { daysKey: 'streakTier3Days' as const, multKey: 'streakTier3Multiplier' as const },
           ]).map(tier => (
-            <div key={tier.multKey} className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 flex-1">
-                <span className="text-sm text-gray-600 w-24">After</span>
-                <input
-                  type="number"
-                  min="1"
-                  value={appConfig[tier.daysKey]}
-                  onChange={e => updateConfig(tier.daysKey, e.target.value)}
-                  className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <span className="text-sm text-gray-600">days</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  value={appConfig[tier.multKey]}
-                  onChange={e => updateConfig(tier.multKey, e.target.value)}
-                  className="w-16 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <span className="text-sm text-gray-600">× bonus</span>
-              </div>
+            <div key={tier.multKey} className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 shrink-0">After</span>
+              <input
+                type="number"
+                min="1"
+                value={appConfig[tier.daysKey]}
+                onChange={e => updateConfig(tier.daysKey, e.target.value)}
+                className="w-14 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-600 shrink-0">days</span>
+              <input
+                type="number"
+                min="1"
+                step="0.1"
+                value={appConfig[tier.multKey]}
+                onChange={e => updateConfig(tier.multKey, e.target.value)}
+                className="w-14 ml-auto border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-gray-600 shrink-0">×</span>
             </div>
           ))}
         </div>
