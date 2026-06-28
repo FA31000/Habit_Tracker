@@ -99,10 +99,9 @@ export default function StatsPage() {
       const byDate: Record<string, string> = {}
       checkins.forEach(c => { byDate[c.date] = c.response })
 
-      // current streak: go backwards from yesterday
+      // current streak: go backwards from today
       let current = 0
       const d = new Date(today)
-      d.setDate(d.getDate() - 1)
       while (true) {
         const dateStr = d.toISOString().split('T')[0]
         const r = byDate[dateStr]
