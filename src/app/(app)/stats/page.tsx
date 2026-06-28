@@ -18,6 +18,34 @@ type HabitStats = {
 }
 
 type DayBar = { day: string; count: number }
+type MultiQuestion = { type: 'multi'; label: string; options: string[] }
+type NumberQuestion = { type: 'number'; label: string; unit: string }
+type PopupQuestion = MultiQuestion | NumberQuestion
+type HabitPopupConfig = { trigger: 'yes' | 'no'; questions: PopupQuestion[] }
+type TimeRange = '7d' | '30d' | 'all'
+
+const DEFAULT_EXERCISE_CONFIG: HabitPopupConfig = {
+  trigger: 'yes',
+  questions: [
+    { type: 'multi', label: 'What did you do?', options: ['Running', 'Swimming', 'Biking', 'Resistance', 'Yoga', 'Other'] },
+    { type: 'number', label: 'Weight', unit: 'kg' },
+  ],
+}
+const DEFAULT_READING_CONFIG: HabitPopupConfig = {
+  trigger: 'yes',
+  questions: [{ type: 'number', label: 'Minutes read', unit: 'min' }],
+}
+const DEFAULT_EATING_CONFIG: HabitPopupConfig = {
+  trigger: 'no',
+  questions: [{ type: 'multi', label: 'Why not?', options: ['Sugar', 'Alcohol', 'Carbs at dinner', 'Other'] }],
+}
+
+function getCutoffDate(range: TimeRange): string | null {
+  if (range === 'all') return null
+  const d = new Date()
+  d.setDate(d.getDate() - (range === '7d' ? 7 : 30))
+  return d.toISOString().split('T')[0]
+}
 
 export default function StatsPage() {
   const [stats, setStats] = useState<HabitStats[]>([])
@@ -26,18 +54,27 @@ export default function StatsPage() {
   const [totalDaysCheckedIn, setTotalDaysCheckedIn] = useState(0)
   const [bestStreak, setBestStreak] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [readingMinutes, setReadingMinutes] = useState<Record<string, number>>({})
-  const [exerciseData, setExerciseData] = useState<Record<string, { weight?: number }>>({})
+  const [timeRange, setTimeRange] = useState<TimeRange>('30d')
+
+  // Popup data from localStorage
+  const [habitPopupConfig, setHabitPopupConfig] = useState<Record<string, HabitPopupConfig>>({})
+  const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, Record<string, string[] | string>>>({})
+  const [legacyReadingMinutes, setLegacyReadingMinutes] = useState<Record<string, number>>({})
+  const [legacyExerciseData, setLegacyExerciseData] = useState<Record<string, { weight?: number; types?: string[] }>>({})
+
   const supabase = createClient()
 
   useEffect(() => {
-    const stored = localStorage.getItem('reading_minutes')
-    if (stored) setReadingMinutes(JSON.parse(stored))
+    const s = localStorage.getItem('habit_popup_config'); if (s) setHabitPopupConfig(JSON.parse(s))
   }, [])
-
   useEffect(() => {
-    const stored = localStorage.getItem('exercise_data')
-    if (stored) setExerciseData(JSON.parse(stored))
+    const s = localStorage.getItem('habit_popup_answers'); if (s) setHabitPopupAnswers(JSON.parse(s))
+  }, [])
+  useEffect(() => {
+    const s = localStorage.getItem('reading_minutes'); if (s) setLegacyReadingMinutes(JSON.parse(s))
+  }, [])
+  useEffect(() => {
+    const s = localStorage.getItem('exercise_data'); if (s) setLegacyExerciseData(JSON.parse(s))
   }, [])
 
   const load = useCallback(async () => {
@@ -58,9 +95,9 @@ export default function StatsPage() {
     })
 
     const habitStats: HabitStats[] = applyStoredOrder(habits ?? []).map(habit => {
-      const habitCheckins = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
-      const kept = habitCheckins.filter(c => c.response === 'yes').length
-      const total = habitCheckins.length
+      const hc = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
+      const kept = hc.filter(c => c.response === 'yes').length
+      const total = hc.length
       const streak = streakMap.get(habit.id)
       return {
         habit,
@@ -80,8 +117,7 @@ export default function StatsPage() {
     yesCheckins.forEach(c => {
       const dv = habitMap.get(c.habit_id) ?? 0
       const s = streakMapSimple.get(c.habit_id) ?? 0
-      const mult = s >= 365 ? 3 : s >= 30 ? 2 : s >= 7 ? 1.5 : 1
-      earned += dv * mult
+      earned += dv * (s >= 365 ? 3 : s >= 30 ? 2 : s >= 7 ? 1.5 : 1)
     })
     const spent = (redeemed ?? []).reduce((s, r) => s + r.price, 0)
     const uniqueDays = new Set((allCheckins ?? []).map(c => c.date)).size
@@ -89,12 +125,10 @@ export default function StatsPage() {
 
     const days: DayBar[] = []
     for (let i = 6; i >= 0; i--) {
-      const d = new Date()
-      d.setDate(d.getDate() - i)
+      const d = new Date(); d.setDate(d.getDate() - i)
       const dateStr = d.toISOString().split('T')[0]
       const dayLabel = d.toLocaleDateString('en-SG', { weekday: 'short' })
-      const count = (allCheckins ?? []).filter(c => c.date === dateStr && c.response === 'yes').length
-      days.push({ day: dayLabel, count })
+      days.push({ day: dayLabel, count: (allCheckins ?? []).filter(c => c.date === dateStr && c.response === 'yes').length })
     }
 
     setStats(habitStats)
@@ -107,10 +141,100 @@ export default function StatsPage() {
 
   useEffect(() => { load() }, [load])
 
+  function getPopupConfig(habit: Habit): HabitPopupConfig | null {
+    if (habitPopupConfig[habit.id]) return habitPopupConfig[habit.id]
+    const n = habit.name.toLowerCase()
+    if (n.includes('exercise') || n.includes('workout') || n.includes('gym')) return DEFAULT_EXERCISE_CONFIG
+    if (n.includes('read')) return DEFAULT_READING_CONFIG
+    if (n.includes('eat') || n.includes('healthy')) return DEFAULT_EATING_CONFIG
+    return null
+  }
+
+  function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {
+    const cutoff = getCutoffDate(timeRange)
+    const byDate = new Map<string, number>()
+
+    // Primary: habit_popup_answers
+    Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
+      const idx = key.lastIndexOf('_')
+      if (key.substring(0, idx) !== habitId) return
+      const date = key.substring(idx + 1)
+      if (cutoff && date < cutoff) return
+      const val = ans[q.label]
+      if (val !== undefined && val !== '') {
+        const n = parseFloat(val as string)
+        if (!isNaN(n)) byDate.set(date, n)
+      }
+    })
+
+    // Legacy fallback
+    const labelLower = q.label.toLowerCase()
+    if (labelLower.includes('weight')) {
+      Object.entries(legacyExerciseData).forEach(([key, data]) => {
+        const idx = key.lastIndexOf('_')
+        if (key.substring(0, idx) !== habitId || data.weight === undefined) return
+        const date = key.substring(idx + 1)
+        if (cutoff && date < cutoff) return
+        if (!byDate.has(date)) byDate.set(date, data.weight!)
+      })
+    }
+    if (labelLower.includes('minute') || labelLower.includes('min')) {
+      Object.entries(legacyReadingMinutes).forEach(([key, mins]) => {
+        const idx = key.lastIndexOf('_')
+        if (key.substring(0, idx) !== habitId) return
+        const date = key.substring(idx + 1)
+        if (cutoff && date < cutoff) return
+        if (!byDate.has(date)) byDate.set(date, mins)
+      })
+    }
+
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({
+        date,
+        label: new Date(date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }),
+        value,
+      }))
+  }
+
+  function getMultiData(habitId: string, q: MultiQuestion): { option: string; count: number }[] {
+    const cutoff = getCutoffDate(timeRange)
+    const counts: Record<string, number> = {}
+
+    Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
+      const idx = key.lastIndexOf('_')
+      if (key.substring(0, idx) !== habitId) return
+      const date = key.substring(idx + 1)
+      if (cutoff && date < cutoff) return
+      const val = ans[q.label]
+      if (Array.isArray(val)) val.forEach(opt => { counts[opt] = (counts[opt] ?? 0) + 1 })
+    })
+
+    // Legacy fallback for exercise types
+    if (q.label.toLowerCase().includes('do') || q.label.toLowerCase().includes('exercise')) {
+      Object.entries(legacyExerciseData).forEach(([key, data]) => {
+        const idx = key.lastIndexOf('_')
+        if (key.substring(0, idx) !== habitId || !data.types) return
+        const date = key.substring(idx + 1)
+        if (cutoff && date < cutoff) return
+        if (!habitPopupAnswers[key]) {
+          data.types.forEach(t => { counts[t] = (counts[t] ?? 0) + 1 })
+        }
+      })
+    }
+
+    return Object.entries(counts)
+      .map(([option, count]) => ({ option, count }))
+      .sort((a, b) => b.count - a.count)
+  }
+
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
+
+  const RANGE_LABELS: Record<TimeRange, string> = { '7d': '7 days', '30d': '30 days', 'all': 'All time' }
 
   return (
     <div className="p-4">
+      {/* Overall stats */}
       <div className="grid grid-cols-3 gap-3 mb-4 mt-2">
         <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
           <p className="text-emerald-700 font-extrabold text-lg">S${totalBalance.toFixed(2)}</p>
@@ -126,6 +250,7 @@ export default function StatsPage() {
         </div>
       </div>
 
+      {/* Weekly bar chart */}
       <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mb-4">
         <p className="text-sm font-semibold text-gray-700 mb-4">Habits kept — last 7 days</p>
         <ResponsiveContainer width="100%" height={120}>
@@ -139,33 +264,36 @@ export default function StatsPage() {
               formatter={(v) => [`${v} habits`, '']}
             />
             <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-              {weekData.map((entry, i) => (
-                <Cell key={i} fill={entry.count > 0 ? '#047857' : '#e5e7eb'} />
-              ))}
+              {weekData.map((entry, i) => <Cell key={i} fill={entry.count > 0 ? '#047857' : '#e5e7eb'} />)}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">Per habit</p>
+      {/* Per-habit section header + time range switcher */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Per habit</p>
+        <div className="flex bg-gray-100 rounded-xl p-0.5 gap-0.5">
+          {(['7d', '30d', 'all'] as TimeRange[]).map(r => (
+            <button
+              key={r}
+              onClick={() => setTimeRange(r)}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${timeRange === r ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >
+              {RANGE_LABELS[r]}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="space-y-3">
         {stats.map(s => {
           const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
-          const isReading = s.habit.name.toLowerCase().includes('read')
-          const isExercise = s.habit.name.toLowerCase().includes('exercise') || s.habit.name.toLowerCase().includes('workout') || s.habit.name.toLowerCase().includes('gym')
-          const allKeys = Object.keys(readingMinutes)
-          const weightEntries = Object.entries(exerciseData)
-            .filter(([, v]) => v.weight !== undefined)
-            .map(([k, v]) => ({ date: k.split('_').slice(-1)[0], weight: v.weight as number }))
-            .sort((a, b) => a.date.localeCompare(b.date))
-            .map(e => ({ date: new Date(e.date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }), weight: e.weight }))
-          const totalMins = allKeys.reduce((sum, k) => sum + (readingMinutes[k] ?? 0), 0)
-          const totalHours = Math.floor(totalMins / 60)
-          const totalRem = totalMins % 60
-          const todayStr = new Date().toISOString().split('T')[0]
-          const todayMins = allKeys.filter(k => k.endsWith('_' + todayStr)).reduce((sum, k) => sum + readingMinutes[k], 0)
+          const popupConfig = getPopupConfig(s.habit)
+
           return (
             <div key={s.habit.id}>
+              {/* Streak card */}
               <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
                 <div className="flex items-start justify-between mb-3">
                   <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
@@ -198,49 +326,85 @@ export default function StatsPage() {
                   })}
                 </div>
               </div>
-              {isExercise && weightEntries.length > 0 && (() => {
-                const weights = weightEntries.map(e => e.weight)
-                const wMin = Math.floor(Math.min(...weights)) - 1
-                const wMax = Math.ceil(Math.max(...weights)) + 1
-                const ticks = Array.from({ length: wMax - wMin + 1 }, (_, i) => wMin + i)
-                return (
-                <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
-                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">⚖️ Weight (kg)</p>
-                  <ResponsiveContainer width="100%" height={120}>
-                    <LineChart data={weightEntries} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                      <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} domain={[wMin, wMax]} ticks={ticks} allowDecimals={false} />
-                      <Tooltip
-                        contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
-                        labelStyle={{ color: '#6b7280' }}
-                        itemStyle={{ color: '#047857' }}
-                        formatter={(v) => [`${v} kg`, '']}
-                      />
-                      <Line type="monotone" dataKey="weight" stroke="#047857" strokeWidth={2} dot={<Dot r={3} fill="#047857" />} activeDot={{ r: 5 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )})()}
-              {isReading && allKeys.length > 0 && (
-                <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
-                  <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">📚 Reading minutes</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="text-center">
-                      <p className="text-gray-900 font-bold">{todayMins || '—'}</p>
-                      <p className="text-xs text-gray-400">Today</p>
+
+              {/* Popup data visualizations */}
+              {popupConfig && popupConfig.questions.map((q, qi) => {
+                if (q.type === 'number') {
+                  const data = getNumberData(s.habit.id, q)
+                  if (data.length === 0) return null
+                  const values = data.map(d => d.value)
+                  const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+                  const total = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10
+                  const vMin = Math.floor(Math.min(...values) * 0.95)
+                  const vMax = Math.ceil(Math.max(...values) * 1.05)
+                  const showLine = data.length > 1
+                  return (
+                    <div key={qi} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
+                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">
+                        {q.label}{q.unit ? ` (${q.unit})` : ''}
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <div className="text-center">
+                          <p className="text-gray-900 font-bold">{avg}{q.unit ? ` ${q.unit}` : ''}</p>
+                          <p className="text-xs text-gray-400">Avg</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-gray-900 font-bold">{total}{q.unit ? ` ${q.unit}` : ''}</p>
+                          <p className="text-xs text-gray-400">Total</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-gray-900 font-bold">{data.length}</p>
+                          <p className="text-xs text-gray-400">Entries</p>
+                        </div>
+                      </div>
+                      {showLine && (
+                        <ResponsiveContainer width="100%" height={110}>
+                          <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} domain={[vMin, vMax]} allowDecimals />
+                            <Tooltip
+                              contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                              labelStyle={{ color: '#6b7280' }}
+                              itemStyle={{ color: '#047857' }}
+                              formatter={(v) => [`${v}${q.unit ? ' ' + q.unit : ''}`, '']}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={<Dot r={3} fill="#047857" />} activeDot={{ r: 5 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
                     </div>
-                    <div className="text-center">
-                      <p className="text-gray-900 font-bold">{totalHours > 0 ? `${totalHours}h ${totalRem}m` : `${totalRem}m`}</p>
-                      <p className="text-xs text-gray-400">Total</p>
+                  )
+                }
+
+                if (q.type === 'multi') {
+                  const data = getMultiData(s.habit.id, q)
+                  if (data.length === 0) return null
+                  const maxCount = Math.max(...data.map(d => d.count))
+                  return (
+                    <div key={qi} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
+                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">{q.label}</p>
+                      <div className="space-y-2">
+                        {data.map(({ option, count }) => (
+                          <div key={option} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-28 flex-shrink-0 text-right truncate">{option}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                              <div
+                                className="bg-emerald-600 h-5 rounded-full transition-all"
+                                style={{ width: `${(count / maxCount) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold text-gray-700 w-4 text-right">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2 text-right">{RANGE_LABELS[timeRange]}</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-gray-900 font-bold">{allKeys.length}</p>
-                      <p className="text-xs text-gray-400">Days read</p>
-                    </div>
-                  </div>
-                </div>
-              )}
+                  )
+                }
+
+                return null
+              })}
             </div>
           )
         })}

@@ -24,6 +24,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Did I read?
   - Did I sleep 8 hours or more?
 - User can add, edit, and delete habits
+- Drag-and-drop reordering on the Habits page; order persisted in localStorage; touch-drag supported on mobile
 - **Dynamic app icon color** (Android home screen) changes based on your longest active streak, like Duolingo:
   - ⚫ Default — no streak yet
   - 🔘 Grey — 5+ day streak
@@ -47,7 +48,12 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 - Each habit has three options per day: **Yes**, **No**, or **Freeze**
 - One freeze token per week, shared across all habits — using Freeze on a habit protects its streak for that day (max 1 use per week total)
 - **Reading minutes popup**: when tapping Yes on "Did I read today?", a popup appears asking how many minutes were read. Minutes are stored in localStorage and shown in a Reading Stats section below the check-in.
-- **Exercise popup**: when tapping Yes on the exercise habit, a popup appears asking which exercise you did (Running / Swimming / Biking / Resistance / Yoga / Other — tap to select, optional) and your weight in kg (optional). Both are stored in localStorage.
+- **Exercise popup**: when tapping Yes on the exercise habit, a popup appears asking which exercise(s) you did (multi-select) and your weight in kg (optional). Both are stored in localStorage.
+- **Unified check-in popup**: any habit can have a fully configurable popup, triggered on Yes or No. Config stored in localStorage under `habit_popup_config`. Answers stored under `habit_popup_answers`. Each habit can have any number of questions of two types:
+  - **Multi-choice**: a label + list of options (multi-select buttons, 2-column grid)
+  - **Number input**: a label + unit (e.g. "Weight / kg", "Minutes read / min")
+- Default configs: Exercise (trigger Yes: "What did you do?" multi + "Weight" number), Reading (trigger Yes: "Minutes read" number), Eating (trigger No: "Why not?" multi)
+- **Habit edit — Check-in pop-up section**: toggle on/off, Yes/No trigger, add/delete/edit questions. Each question shows its type badge (Multi-choice in purple, Number in blue), label input, and type-specific fields (options list with add/delete for multi; unit field for number). Add question via "+ Multi-choice" or "+ Number" buttons.
 - **Exercise weight graph**: on the Stats page, a line graph showing weight over time appears below the exercise habit card (only shown if at least one weight entry exists).
 
 ### 3. Points & Dollar Balance
@@ -80,13 +86,18 @@ Badges displayed on a profile/trophy page per habit.
 - Per habit: current streak, longest streak, total days kept, success rate (%)
 - Overall: total dollar balance earned, total check-in days, best streak across all habits
 - Simple charts: weekly/monthly habit completion bar chart
+- **Time range switcher** (7 days / 30 days / All time) — controls all popup data visualizations below each habit card
+- **Popup data visualizations** per habit (shown below each habit's streak card, only if data exists):
+  - **Number questions** (e.g. Weight, Minutes read): line graph over selected time range + summary stats (avg, total, entries)
+  - **Multi-choice questions** (e.g. What did you do?, Why not?): horizontal bar chart showing frequency of each option over selected time range
+  - Data read from `habit_popup_answers` in localStorage, with legacy fallback to `exercise_data` (for exercise weight/types) and `reading_minutes` (for reading minutes)
 
 ### 7. Wishlist (Spending)
 - Add items with a name, price, and optional product URL (e.g. "New shoes — S$80")
 - Pre-loaded first wishlist item: Premium smartphone — S$2,000
 - Items show as locked until balance is sufficient
 - Mark as "Redeemed" — deducts price from dollar balance
-- Drag-and-drop reordering of available rewards; order persisted in localStorage
+- Drag-and-drop reordering of available rewards; order persisted in localStorage; touch-drag supported on mobile
 - History of redeemed items
 
 ### 8. Accountability Partner

@@ -8,6 +8,11 @@ import { getStreakMultiplier, BADGE_MILESTONES, loadAppConfig, type AppConfig } 
 import { applyStoredOrder } from '@/lib/habitOrder'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze'>
+type MultiQuestion = { type: 'multi'; label: string; options: string[] }
+type NumberQuestion = { type: 'number'; label: string; unit: string }
+type PopupQuestion = MultiQuestion | NumberQuestion
+type HabitPopupConfig = { trigger: 'yes' | 'no'; questions: PopupQuestion[] }
+type PopupAnswers = Record<string, string[] | string>
 
 const MIN_DATE = '2026-06-27'
 
@@ -34,6 +39,22 @@ function addDays(dateStr: string, days: number) {
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
 }
 
+const DEFAULT_EXERCISE_CONFIG: HabitPopupConfig = {
+  trigger: 'yes',
+  questions: [
+    { type: 'multi', label: 'What did you do?', options: ['Running', 'Swimming', 'Biking', 'Resistance', 'Yoga', 'Other'] },
+    { type: 'number', label: 'Weight', unit: 'kg' },
+  ],
+}
+const DEFAULT_READING_CONFIG: HabitPopupConfig = {
+  trigger: 'yes',
+  questions: [{ type: 'number', label: 'Minutes read', unit: 'min' }],
+}
+const DEFAULT_EATING_CONFIG: HabitPopupConfig = {
+  trigger: 'no',
+  questions: [{ type: 'multi', label: 'Why not?', options: ['Sugar', 'Alcohol', 'Carbs at dinner', 'Other'] }],
+}
+
 export default function CheckInPage() {
   const [habits, setHabits] = useState<Habit[]>([])
   const [checkins, setCheckins] = useState<CheckinMap>({})
@@ -45,17 +66,16 @@ export default function CheckInPage() {
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [weeklyNoCounts, setWeeklyNoCounts] = useState<Record<string, number>>({})
   const [selectedDate, setSelectedDate] = useState(todayDate)
-  const [readingPopup, setReadingPopup] = useState(false)
-  const [readingMinutesInput, setReadingMinutesInput] = useState('')
-  const [readingMinutes, setReadingMinutes] = useState<Record<string, number>>({})
-  const [pendingReadingHabitId, setPendingReadingHabitId] = useState<string | null>(null)
-  const [exercisePopup, setExercisePopup] = useState(false)
-  const [exerciseWeightInput, setExerciseWeightInput] = useState('')
-  const [exerciseTypeInput, setExerciseTypeInput] = useState('')
-  const [exerciseData, setExerciseData] = useState<Record<string, { weight?: number; type?: string }>>({})
-  const [pendingExerciseHabitId, setPendingExerciseHabitId] = useState<string | null>(null)
   const [streaks, setStreaks] = useState<Record<string, number>>({})
   const [appConfig, setAppConfig] = useState<AppConfig>(loadAppConfig())
+
+  // Unified popup state
+  const [habitPopupConfig, setHabitPopupConfig] = useState<Record<string, HabitPopupConfig>>({})
+  const [savedPopupAnswers, setSavedPopupAnswers] = useState<Record<string, PopupAnswers>>({})
+  const [popupOpen, setPopupOpen] = useState(false)
+  const [pendingPopupHabitId, setPendingPopupHabitId] = useState<string | null>(null)
+  const [popupCurrentAnswers, setPopupCurrentAnswers] = useState<PopupAnswers>({})
+
   const supabase = createClient()
   const today = todayDate()
   const weekStart = getWeekStart(selectedDate)
@@ -87,14 +107,12 @@ export default function CheckInPage() {
     ;(weekNoData ?? []).forEach((c: { habit_id: string }) => { noCounts[c.habit_id] = (noCounts[c.habit_id] ?? 0) + 1 })
     setWeeklyNoCounts(noCounts)
 
-    // Group checkins by habit_id for streak computation
     const checkinsByHabit: Record<string, Record<string, string>> = {}
     ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
       if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = {}
       checkinsByHabit[c.habit_id][c.date] = c.response
     })
 
-    // Compute streak from checkin history: count consecutive days before selectedDate with yes/freeze
     function computeStreak(habitId: string): number {
       const byDate = checkinsByHabit[habitId] ?? {}
       let streak = 0
@@ -103,12 +121,7 @@ export default function CheckInPage() {
       while (true) {
         const dateStr = d.toISOString().split('T')[0]
         const r = byDate[dateStr]
-        if (r === 'yes' || r === 'freeze') {
-          streak++
-          d.setDate(d.getDate() - 1)
-        } else {
-          break
-        }
+        if (r === 'yes' || r === 'freeze') { streak++; d.setDate(d.getDate() - 1) } else break
       }
       return streak
     }
@@ -140,18 +153,22 @@ export default function CheckInPage() {
   useEffect(() => { setLoading(true); setCheckins({}); load() }, [load])
 
   useEffect(() => {
-    const stored = localStorage.getItem('reading_minutes')
-    if (stored) setReadingMinutes(JSON.parse(stored))
+    const stored = localStorage.getItem('habit_popup_config')
+    if (stored) setHabitPopupConfig(JSON.parse(stored))
   }, [])
 
   useEffect(() => {
-    const stored = localStorage.getItem('exercise_data')
-    if (stored) setExerciseData(JSON.parse(stored))
+    const stored = localStorage.getItem('habit_popup_answers')
+    if (stored) setSavedPopupAnswers(JSON.parse(stored))
   }, [])
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === 'app_config') setAppConfig(loadAppConfig())
+      if (e.key === 'habit_popup_config') {
+        const s = localStorage.getItem('habit_popup_config')
+        if (s) setHabitPopupConfig(JSON.parse(s))
+      }
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
@@ -159,82 +176,96 @@ export default function CheckInPage() {
 
   const readingHabit = habits.find(h => h.name.toLowerCase().includes('read'))
   const exerciseHabit = habits.find(h => h.name.toLowerCase().includes('exercise') || h.name.toLowerCase().includes('workout') || h.name.toLowerCase().includes('gym'))
+  const eatingHabit = habits.find(h => h.name.toLowerCase().includes('eat') || h.name.toLowerCase().includes('healthy'))
 
-  function saveReadingMinutes(habitId: string, minutes: number) {
-    const updated = { ...readingMinutes, [habitId + '_' + selectedDate]: minutes }
-    setReadingMinutes(updated)
-    localStorage.setItem('reading_minutes', JSON.stringify(updated))
+  function getPopupConfig(habitId: string): HabitPopupConfig | null {
+    if (habitPopupConfig[habitId]) return habitPopupConfig[habitId]
+    if (exerciseHabit?.id === habitId) return DEFAULT_EXERCISE_CONFIG
+    if (readingHabit?.id === habitId) return DEFAULT_READING_CONFIG
+    if (eatingHabit?.id === habitId) return DEFAULT_EATING_CONFIG
+    return null
   }
 
-  function saveExerciseData(habitId: string, weight?: number, type?: string) {
-    const entry: { weight?: number; type?: string } = {}
-    if (weight !== undefined) entry.weight = weight
-    if (type) entry.type = type
-    const updated = { ...exerciseData, [habitId + '_' + selectedDate]: entry }
-    setExerciseData(updated)
-    localStorage.setItem('exercise_data', JSON.stringify(updated))
-  }
-
-  function confirmExercise() {
-    const weightVal = exerciseWeightInput.trim() !== '' ? parseFloat(exerciseWeightInput) : undefined
-    if (pendingExerciseHabitId) {
-      saveExerciseData(
-        pendingExerciseHabitId,
-        weightVal !== undefined && !isNaN(weightVal) ? weightVal : undefined,
-        exerciseTypeInput || undefined
-      )
-      doAnswer(pendingExerciseHabitId, 'yes')
-    }
-    setExercisePopup(false)
-    setExerciseWeightInput('')
-    setExerciseTypeInput('')
-    setPendingExerciseHabitId(null)
-  }
-
-  function confirmReadingMinutes() {
-    const mins = parseInt(readingMinutesInput)
-    if (!isNaN(mins) && mins > 0 && pendingReadingHabitId) {
-      saveReadingMinutes(pendingReadingHabitId, mins)
-    }
-    setReadingPopup(false)
-    setReadingMinutesInput('')
-    if (pendingReadingHabitId) doAnswer(pendingReadingHabitId, 'yes')
-    setPendingReadingHabitId(null)
+  function getCheckinLabel(habitId: string, response: 'yes' | 'no'): string {
+    const config = getPopupConfig(habitId)
+    const icon = response === 'yes' ? '✅' : '❌'
+    const word = response === 'yes' ? 'Yes' : 'No'
+    if (!config || config.trigger !== response) return `${icon} ${word}`
+    const answers = savedPopupAnswers[habitId + '_' + selectedDate]
+    if (!answers) return `${icon} ${word}`
+    const parts: string[] = []
+    config.questions.forEach(q => {
+      const ans = answers[q.label]
+      if (q.type === 'multi' && Array.isArray(ans) && ans.length > 0) parts.push(ans.join(', '))
+      else if (q.type === 'number' && ans && ans !== '') parts.push(`${ans}${q.unit ? ' ' + q.unit : ''}`)
+    })
+    return parts.length > 0 ? `${icon} ${word} (${parts.join(', ')})` : `${icon} ${word}`
   }
 
   async function answer(habitId: string, response: 'yes' | 'no' | 'freeze') {
-    if (response === 'yes' && readingHabit && habitId === readingHabit.id && checkins[habitId] !== 'yes') {
-      setPendingReadingHabitId(habitId)
-      setReadingMinutesInput('')
-      setReadingPopup(true)
-      return
-    }
-    if (response === 'yes' && exerciseHabit && habitId === exerciseHabit.id && checkins[habitId] !== 'yes') {
-      setPendingExerciseHabitId(habitId)
-      setExerciseWeightInput('')
-      setExerciseTypeInput('')
-      setExercisePopup(true)
+    const config = getPopupConfig(habitId)
+    if (config && response === config.trigger && checkins[habitId] !== response) {
+      setPendingPopupHabitId(habitId)
+      setPopupCurrentAnswers({})
+      setPopupOpen(true)
       return
     }
     await doAnswer(habitId, response)
+  }
+
+  async function confirmPopup() {
+    if (!pendingPopupHabitId) return
+    const config = getPopupConfig(pendingPopupHabitId)
+    const key = pendingPopupHabitId + '_' + selectedDate
+
+    const updated = { ...savedPopupAnswers, [key]: popupCurrentAnswers }
+    setSavedPopupAnswers(updated)
+    localStorage.setItem('habit_popup_answers', JSON.stringify(updated))
+
+    // Maintain legacy keys for stats page
+    if (config) {
+      if (exerciseHabit?.id === pendingPopupHabitId) {
+        const multiQ = config.questions.find(q => q.type === 'multi') as MultiQuestion | undefined
+        const numQ = config.questions.find(q => q.type === 'number') as NumberQuestion | undefined
+        const entry: { weight?: number; types?: string[] } = {}
+        if (multiQ) { const a = popupCurrentAnswers[multiQ.label]; if (Array.isArray(a)) entry.types = a }
+        if (numQ) { const a = popupCurrentAnswers[numQ.label]; if (a && a !== '') entry.weight = parseFloat(a as string) }
+        const stored = localStorage.getItem('exercise_data')
+        const all = stored ? JSON.parse(stored) : {}
+        all[key] = entry
+        localStorage.setItem('exercise_data', JSON.stringify(all))
+      }
+      if (readingHabit?.id === pendingPopupHabitId) {
+        const numQ = config.questions.find(q => q.type === 'number') as NumberQuestion | undefined
+        if (numQ) {
+          const a = popupCurrentAnswers[numQ.label]
+          if (a && a !== '') {
+            const stored = localStorage.getItem('reading_minutes')
+            const all = stored ? JSON.parse(stored) : {}
+            all[key] = parseFloat(a as string)
+            localStorage.setItem('reading_minutes', JSON.stringify(all))
+          }
+        }
+      }
+    }
+
+    await doAnswer(pendingPopupHabitId, config!.trigger)
+    setPopupOpen(false)
+    setPopupCurrentAnswers({})
+    setPendingPopupHabitId(null)
   }
 
   async function doAnswer(habitId: string, response: 'yes' | 'no' | 'freeze') {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // If clicking the already-selected option, cancel it
     if (checkins[habitId] === response) {
       await supabase.from('checkins').delete().eq('habit_id', habitId).eq('user_id', user.id).eq('date', selectedDate)
       if (response === 'freeze') {
         await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
         setFreezeUsed(false)
       }
-      setCheckins(prev => {
-        const next = { ...prev }
-        delete next[habitId]
-        return next
-      })
+      setCheckins(prev => { const next = { ...prev }; delete next[habitId]; return next })
       setDone(false)
       return
     }
@@ -296,15 +327,12 @@ export default function CheckInPage() {
 
   return (
     <div className="p-3">
-      {/* Date navigation */}
       <div className="flex items-center justify-between mb-2 mt-1">
         <button
           onClick={() => { setSelectedDate(prev => addDays(prev, -1)); setDone(false) }}
           disabled={selectedDate <= MIN_DATE}
           className="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
-        >
-          ‹
-        </button>
+        >‹</button>
         <div className="text-center">
           <p className="text-sm font-semibold text-gray-800">{formatDate(selectedDate)}</p>
           {selectedDate !== today && (
@@ -315,16 +343,12 @@ export default function CheckInPage() {
           onClick={() => { setSelectedDate(prev => addDays(prev, 1)); setDone(false) }}
           disabled={selectedDate >= today}
           className="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
-        >
-          ›
-        </button>
+        >›</button>
       </div>
 
       <div className="flex items-center justify-between mb-2 mt-1">
         <p className="text-sm text-gray-500">{answered}/{habits.length} answered</p>
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-bold text-emerald-700">{appConfig.currencySymbol}{balance.toFixed(2)}</span>
-        </div>
+        <span className="text-sm font-bold text-emerald-700">{appConfig.currencySymbol}{balance.toFixed(2)}</span>
       </div>
 
       <div className="space-y-2">
@@ -340,62 +364,28 @@ export default function CheckInPage() {
                 <div className="flex-1 flex flex-col items-center gap-0.5">
                   <button
                     onClick={() => answer(habit.id, 'yes')}
-                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${
-                      response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'
-                    }`}
+                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'}`}
                   >
-                    {(() => {
-                      if (response === 'yes') {
-                        if (exerciseHabit && habit.id === exerciseHabit.id) {
-                          const d = exerciseData[habit.id + '_' + selectedDate]
-                          if (d) {
-                            const parts = [d.type, d.weight !== undefined ? `${d.weight} kg` : null].filter(Boolean).join(', ')
-                            if (parts) return `✅ Yes (${parts})`
-                          }
-                        }
-                        if (readingHabit && habit.id === readingHabit.id) {
-                          const mins = readingMinutes[habit.id + '_' + selectedDate]
-                          if (mins) return `✅ Yes (${mins} min)`
-                        }
-                      }
-                      return '✅ Yes'
-                    })()}
+                    {response === 'yes' ? getCheckinLabel(habit.id, 'yes') : '✅ Yes'}
                   </button>
-                  {(() => {
-                    const streak = streaks[habit.id] ?? 0
-                    return <span className="text-xs text-gray-400">🔥 {streak} day streak</span>
-                  })()}
+                  <span className="text-xs text-gray-400">🔥 {streaks[habit.id] ?? 0} day streak</span>
                 </div>
                 <div className="flex-1 flex flex-col items-center gap-0.5">
                   <button
                     onClick={() => answer(habit.id, 'no')}
-                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${
-                      response === 'no' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 active:bg-red-100'
-                    }`}
+                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${response === 'no' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 active:bg-red-100'}`}
                   >
-                    ❌ No
+                    {response === 'no' ? getCheckinLabel(habit.id, 'no') : '❌ No'}
                   </button>
-                  {(() => {
-                    const used = weeklyNoCounts[habit.id] ?? 0
-                    const left = habit.allowed_no_days_per_week - used
-                    return (
-                      <span className="text-xs text-gray-400">{left} no{left === 1 ? '' : 's'} left this week</span>
-                    )
-                  })()}
+                  <span className="text-xs text-gray-400">{habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0)} no{habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0) === 1 ? '' : 's'} left this week</span>
                 </div>
                 <div className="flex-1 flex flex-col items-center gap-0.5">
-                <button
-                  onClick={() => answer(habit.id, 'freeze')}
-                  disabled={freezeUsed && response !== 'freeze'}
-                  className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${
-                    response === 'freeze' ? 'bg-blue-500 text-white'
-                    : freezeUsed ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
-                    : 'bg-gray-100 text-amber-600 active:bg-blue-100'
-                  }`}
-                >
-                  ❄️ Freeze
-                </button>
-                <span className="text-xs text-gray-400">{freezeUsed ? '0 freezes left' : '1 freeze left'}</span>
+                  <button
+                    onClick={() => answer(habit.id, 'freeze')}
+                    disabled={freezeUsed && response !== 'freeze'}
+                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${response === 'freeze' ? 'bg-blue-500 text-white' : freezeUsed ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 text-amber-600 active:bg-blue-100'}`}
+                  >❄️ Freeze</button>
+                  <span className="text-xs text-gray-400">{freezeUsed ? '0 freezes left' : '1 freeze left'}</span>
                 </div>
               </div>
             </div>
@@ -404,11 +394,7 @@ export default function CheckInPage() {
       </div>
 
       {allAnswered && !done && (
-        <button
-          onClick={saveAll}
-          disabled={saving}
-          className="w-full mt-6 py-4 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-base disabled:opacity-50 shadow-sm"
-        >
+        <button onClick={saveAll} disabled={saving} className="w-full mt-6 py-4 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-base disabled:opacity-50 shadow-sm">
           {saving ? 'Saving...' : '🎯 Save Check-In'}
         </button>
       )}
@@ -428,89 +414,69 @@ export default function CheckInPage() {
         </div>
       )}
 
-      {/* Exercise popup */}
-      {exercisePopup && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <p className="text-base font-bold text-gray-900 mb-4">🏃 Log your exercise</p>
-            <p className="text-sm font-medium text-gray-700 mb-2">What did you do?</p>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {['Running', 'Swimming', 'Biking', 'Resistance', 'Yoga', 'Other'].map(type => (
+      {/* Unified popup */}
+      {popupOpen && pendingPopupHabitId && (() => {
+        const config = getPopupConfig(pendingPopupHabitId)
+        if (!config) return null
+        const isNo = config.trigger === 'no'
+        return (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl max-h-[85vh] overflow-y-auto">
+              <p className="text-base font-bold text-gray-900 mb-5">
+                {isNo ? '❌ Tell us more' : '✅ Log it'}
+              </p>
+              <div className="space-y-5">
+                {config.questions.map((q, i) => (
+                  <div key={i}>
+                    <p className="text-sm font-medium text-gray-700 mb-2">{q.label}{q.type === 'number' && q.unit ? ` (${q.unit})` : ''}</p>
+                    {q.type === 'multi' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {q.options.map(opt => {
+                          const sel = (popupCurrentAnswers[q.label] as string[] | undefined) ?? []
+                          const active = sel.includes(opt)
+                          return (
+                            <button
+                              key={opt}
+                              onClick={() => setPopupCurrentAnswers(prev => {
+                                const cur = (prev[q.label] as string[]) ?? []
+                                return { ...prev, [q.label]: cur.includes(opt) ? cur.filter(o => o !== opt) : [...cur, opt] }
+                              })}
+                              className={`py-2 px-3 rounded-xl text-sm font-semibold border transition-colors text-center ${active ? (isNo ? 'bg-red-500 text-white border-red-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-gray-50 text-gray-800 border-gray-200'}`}
+                            >
+                              {opt}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {q.type === 'number' && (
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder={q.unit ? `e.g. 30` : 'Enter a number'}
+                        value={popupCurrentAnswers[q.label] ?? ''}
+                        onChange={e => setPopupCurrentAnswers(prev => ({ ...prev, [q.label]: e.target.value }))}
+                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3 mt-6">
                 <button
-                  key={type}
-                  onClick={() => setExerciseTypeInput(exerciseTypeInput === type ? '' : type)}
-                  className={`py-2 rounded-xl text-sm font-semibold border transition-colors ${
-                    exerciseTypeInput === type
-                      ? 'bg-emerald-700 text-white border-emerald-700'
-                      : 'bg-gray-50 text-gray-700 border-gray-200'
-                  }`}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
-            <p className="text-sm font-medium text-gray-700 mb-1">Weight <span className="text-gray-400 font-normal">(kg, optional)</span></p>
-            <input
-              type="number"
-              min="0"
-              step="0.1"
-              value={exerciseWeightInput}
-              onChange={e => setExerciseWeightInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && confirmExercise()}
-              placeholder="e.g. 72.5"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setExercisePopup(false); setExerciseWeightInput(''); setExerciseTypeInput(''); setPendingExerciseHabitId(null) }}
-                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmExercise}
-                className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold text-sm"
-              >
-                Save
-              </button>
+                  onClick={() => { setPopupOpen(false); setPopupCurrentAnswers({}); setPendingPopupHabitId(null) }}
+                  className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm"
+                >Cancel</button>
+                <button
+                  onClick={confirmPopup}
+                  className={`flex-1 py-3 rounded-xl text-white font-semibold text-sm ${isNo ? 'bg-red-500' : 'bg-emerald-700'}`}
+                >Save</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Reading minutes popup */}
-      {readingPopup && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-            <p className="text-base font-bold text-gray-900 mb-1">📚 How many minutes did you read?</p>
-            <p className="text-sm text-gray-500 mb-4">Enter 0 to skip tracking.</p>
-            <input
-              type="number"
-              min="0"
-              value={readingMinutesInput}
-              onChange={e => setReadingMinutesInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && confirmReadingMinutes()}
-              placeholder="e.g. 30"
-              autoFocus
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => { setReadingPopup(false); setReadingMinutesInput(''); setPendingReadingHabitId(null) }}
-                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmReadingMinutes}
-                className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold text-sm"
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
