@@ -10,6 +10,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [signedUp, setSignedUp] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -21,13 +22,14 @@ export default function LoginPage() {
     if (mode === 'login') {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) { setError(error.message); setLoading(false); return }
+      router.push('/')
+      router.refresh()
     } else {
       const { error } = await supabase.auth.signUp({ email, password })
       if (error) { setError(error.message); setLoading(false); return }
+      setSignedUp(true)
+      setLoading(false)
     }
-
-    router.push('/')
-    router.refresh()
   }
 
   return (
@@ -39,6 +41,22 @@ export default function LoginPage() {
           <p className="text-gray-400 text-sm mt-1">Build streaks. Earn rewards.</p>
         </div>
 
+        {signedUp ? (
+          <div className="text-center space-y-3">
+            <div className="text-4xl">📬</div>
+            <p className="text-white font-semibold">Check your email</p>
+            <p className="text-gray-400 text-sm">
+              We sent a confirmation link to <span className="text-white">{email}</span>.<br />
+              Click the link to activate your account, then come back and log in.
+            </p>
+            <button
+              onClick={() => { setSignedUp(false); setMode('login') }}
+              className="mt-4 text-indigo-400 text-sm underline"
+            >
+              Go to Log In
+            </button>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
             type="email"
@@ -74,6 +92,7 @@ export default function LoginPage() {
         >
           {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
         </button>
+        )}
       </div>
     </div>
   )
