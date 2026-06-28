@@ -1,3 +1,15 @@
+self.addEventListener('install', function (event) {
+  self.skipWaiting()
+})
+
+self.addEventListener('activate', function (event) {
+  event.waitUntil(clients.claim())
+})
+
+self.addEventListener('fetch', function (event) {
+  // Pass all requests through — required for Android Chrome to recognise this SW
+})
+
 self.addEventListener('push', function (event) {
   const data = event.data ? event.data.json() : {}
   const title = data.title || 'Habit Tracker'

@@ -106,8 +106,8 @@ export default function SettingsPage() {
     if (!('serviceWorker' in navigator)) return
     const permission = await Notification.requestPermission()
     if (permission !== 'granted') { setNotifStatus('denied'); return }
-    const reg = await navigator.serviceWorker.register('/sw.js')
-    await navigator.serviceWorker.ready
+    await navigator.serviceWorker.register('/sw.js')
+    const reg = await navigator.serviceWorker.ready
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
