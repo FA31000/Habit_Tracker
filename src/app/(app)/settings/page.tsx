@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import { loadAppConfig, DEFAULT_APP_CONFIG, type AppConfig } from '@/lib/types'
 
 export default function SettingsPage() {
@@ -12,7 +13,14 @@ export default function SettingsPage() {
   const [reminderTime, setReminderTime] = useState('21:00')
   const [savingTime, setSavingTime] = useState(false)
   const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const supabase = createClient()
+  const router = useRouter()
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+  }
 
   const load = useCallback(async () => {
     let { data: { user } } = await supabase.auth.getUser()
@@ -21,6 +29,7 @@ export default function SettingsPage() {
       user = data.user
     }
     if (!user) return
+    setUserEmail(user.email ?? null)
 
     const [{ data: link }, { data: settings }] = await Promise.all([
       supabase.from('share_links').select('token').eq('user_id', user.id).single(),
@@ -130,6 +139,20 @@ export default function SettingsPage() {
 
   return (
     <div className="p-4">
+      {/* Account */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-4 mt-2">
+        <h2 className="font-semibold text-gray-900 mb-1">Account</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          {userEmail ?? 'Anonymous user'}
+        </p>
+        <button
+          onClick={handleLogout}
+          className="w-full py-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 font-semibold text-sm transition"
+        >
+          Log Out
+        </button>
+      </div>
+
       {/* Push Notifications */}
       <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-4 mt-2">
         <h2 className="font-semibold text-gray-900 mb-1">Daily Reminder</h2>
