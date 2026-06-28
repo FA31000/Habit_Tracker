@@ -57,41 +57,43 @@ export default function LoginPage() {
             </button>
           </div>
         ) : (
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            required
-            className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
-          />
+          <div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-gray-800 text-white placeholder-gray-500 border border-gray-700 focus:outline-none focus:border-indigo-500 text-base"
+              />
 
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+              {error && <p className="text-red-400 text-sm">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-base transition disabled:opacity-50"
-          >
-            {loading ? '...' : mode === 'login' ? 'Log In' : 'Create Account'}
-          </button>
-        </form>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-semibold text-base transition disabled:opacity-50"
+              >
+                {loading ? '...' : mode === 'login' ? 'Log In' : 'Create Account'}
+              </button>
+            </form>
 
-        <button
-          onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
-          className="w-full mt-4 text-gray-400 text-sm text-center"
-        >
-          {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
-        </button>
+            <button
+              onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+              className="w-full mt-4 text-gray-400 text-sm text-center"
+            >
+              {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
+            </button>
+          </div>
         )}
       </div>
     </div>
