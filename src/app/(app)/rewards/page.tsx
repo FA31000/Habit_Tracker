@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { WishlistItem } from '@/lib/types'
+import { getStreakMultiplier, loadAppConfig } from '@/lib/types'
+import { computeHabitStreak, todayDate } from '@/lib/streak'
 
 const ORDER_KEY = 'rewards_order'
 
@@ -35,18 +37,23 @@ export default function RewardsPage() {
     if (!user) return
 
     const { data: wishlist } = await supabase.from('wishlist_items').select('*').eq('user_id', user.id).order('redeemed', { ascending: true }).order('price', { ascending: true })
-    const { data: checkins } = await supabase.from('checkins').select('habit_id, response').eq('user_id', user.id).eq('response', 'yes')
-    const { data: habits } = await supabase.from('habits').select('id, dollar_value').eq('user_id', user.id)
-    const { data: streaks } = await supabase.from('streaks').select('habit_id, current_streak').eq('user_id', user.id)
+    const { data: checkins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
+    const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id)
 
+    const cfg = loadAppConfig()
+    const today = todayDate()
     const habitMap = new Map((habits ?? []).map(h => [h.id, h.dollar_value]))
-    const streakMap = new Map((streaks ?? []).map(s => [s.habit_id, s.current_streak]))
-    let earned = 0
+    const checkinsByHabit = new Map<string, { date: string; response: 'yes' | 'no' | 'freeze' }[]>()
     ;(checkins ?? []).forEach(c => {
+      if (!checkinsByHabit.has(c.habit_id)) checkinsByHabit.set(c.habit_id, [])
+      checkinsByHabit.get(c.habit_id)!.push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' })
+    })
+    const streakMap = new Map((habits ?? []).map(h => [h.id, computeHabitStreak(checkinsByHabit.get(h.id) ?? [], h.allowed_no_days_per_week, today).current]))
+    let earned = 0
+    ;(checkins ?? []).filter(c => c.response === 'yes').forEach(c => {
       const dv = habitMap.get(c.habit_id) ?? 0
       const streak = streakMap.get(c.habit_id) ?? 0
-      const mult = streak >= 365 ? 3 : streak >= 30 ? 2 : streak >= 7 ? 1.5 : 1
-      earned += dv * mult
+      earned += dv * getStreakMultiplier(streak, cfg)
     })
     const spent = (wishlist ?? []).filter(i => i.redeemed).reduce((s, i) => s + i.price, 0)
 

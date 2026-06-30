@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getStreakMultiplier, loadAppConfig } from '@/lib/types'
+import { computeHabitStreak, todayDate } from '@/lib/streak'
 
 export default function BalanceBadge() {
   const [balance, setBalance] = useState<number | null>(null)
@@ -17,36 +18,30 @@ export default function BalanceBadge() {
       let { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const { data: habitsData } = await supabase.from('habits').select('id, dollar_value').eq('user_id', user.id).eq('is_active', true)
+      const { data: habitsData } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
       const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
       const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
-      const habitMap = new Map((habitsData ?? []).map((h: { id: string; dollar_value: number }) => [h.id, h]))
+      type BadgeHabit = { id: string; dollar_value: number; allowed_no_days_per_week: number }
+      const habitMap = new Map((habitsData ?? []).map((h: BadgeHabit) => [h.id, h]))
 
       // compute streaks per habit
-      const checkinsByHabit: Record<string, Record<string, string>> = {}
+      const checkinsByHabit: Record<string, { date: string; response: 'yes' | 'no' | 'freeze' }[]> = {}
       ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
-        if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = {}
-        checkinsByHabit[c.habit_id][c.date] = c.response
+        if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = []
+        checkinsByHabit[c.habit_id].push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' })
       })
 
-      function computeStreak(habitId: string): number {
-        const byDate = checkinsByHabit[habitId] ?? {}
-        let streak = 0
-        const d = new Date()
-        d.setDate(d.getDate() - 1)
-        while (true) {
-          const dateStr = d.toISOString().split('T')[0]
-          const r = byDate[dateStr]
-          if (r === 'yes' || r === 'freeze') { streak++; d.setDate(d.getDate() - 1) } else break
-        }
-        return streak
-      }
+      const today = todayDate()
+      const streakByHabit = new Map<string, number>()
+      ;(habitsData ?? []).forEach((h: BadgeHabit) => {
+        streakByHabit.set(h.id, computeHabitStreak(checkinsByHabit[h.id] ?? [], h.allowed_no_days_per_week, today).current)
+      })
 
       let earned = 0
       ;(allCheckins ?? []).filter((c: { response: string }) => c.response === 'yes').forEach((c: { habit_id: string }) => {
-        const habit = habitMap.get(c.habit_id) as { id: string; dollar_value: number } | undefined
-        const streak = computeStreak(c.habit_id)
+        const habit = habitMap.get(c.habit_id) as BadgeHabit | undefined
+        const streak = streakByHabit.get(c.habit_id) ?? 0
         if (habit) earned += habit.dollar_value * getStreakMultiplier(streak, cfg)
       })
       const spent = (redeemed ?? []).reduce((sum: number, r: { price: number }) => sum + r.price, 0)

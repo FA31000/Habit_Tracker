@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
+import { BADGE_CONFIG, BADGE_MILESTONES, getStreakMultiplier, loadAppConfig } from '@/lib/types'
 import type { Habit } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid, Dot } from 'recharts'
+import { computeHabitStreak, todayDate } from '@/lib/streak'
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
 type HabitStats = {
   habit: Habit
@@ -17,7 +18,6 @@ type HabitStats = {
   earnedBadges: number[]
 }
 
-type DayBar = { day: string; count: number }
 type MultiQuestion = { type: 'multi'; label: string; options: string[] }
 type NumberQuestion = { type: 'number'; label: string; unit: string }
 type PopupQuestion = MultiQuestion | NumberQuestion
@@ -49,7 +49,6 @@ function getCutoffDate(range: TimeRange): string | null {
 
 export default function StatsPage() {
   const [stats, setStats] = useState<HabitStats[]>([])
-  const [weekData, setWeekData] = useState<DayBar[]>([])
   const [totalBalance, setTotalBalance] = useState(0)
   const [totalDaysCheckedIn, setTotalDaysCheckedIn] = useState(0)
   const [bestStreak, setBestStreak] = useState(0)
@@ -92,38 +91,14 @@ export default function StatsPage() {
       badgeMap.get(b.habit_id)!.push(b.milestone_days)
     })
 
-    const today = new Date().toISOString().split('T')[0]
-
-    function computeStreaks(habitId: string): { current: number; longest: number } {
-      const checkins = (allCheckins ?? []).filter(c => c.habit_id === habitId)
-      const byDate: Record<string, string> = {}
-      checkins.forEach(c => { byDate[c.date] = c.response })
-
-      // current streak: go backwards from today
-      let current = 0
-      const d = new Date(today)
-      while (true) {
-        const dateStr = d.toISOString().split('T')[0]
-        const r = byDate[dateStr]
-        if (r === 'yes' || r === 'freeze') { current++; d.setDate(d.getDate() - 1) } else break
-      }
-
-      // longest streak: scan all dates in order
-      const dates = Object.keys(byDate).sort()
-      let longest = 0, run = 0
-      for (const date of dates) {
-        const r = byDate[date]
-        if (r === 'yes' || r === 'freeze') { run++; longest = Math.max(longest, run) } else { run = 0 }
-      }
-
-      return { current, longest }
-    }
+    const today = todayDate()
 
     const habitStats: HabitStats[] = applyStoredOrder(habits ?? []).map(habit => {
       const hc = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
       const kept = hc.filter(c => c.response === 'yes').length
       const total = hc.length
-      const { current, longest } = computeStreaks(habit.id)
+      const list = hc.map(c => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
+      const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, today)
       return {
         habit,
         currentStreak: current,
@@ -135,6 +110,7 @@ export default function StatsPage() {
       }
     })
 
+    const cfg = loadAppConfig()
     const yesCheckins = (allCheckins ?? []).filter(c => c.response === 'yes')
     const habitMap = new Map((habits ?? []).map(h => [h.id, h.dollar_value]))
     const streaksByHabit = new Map(habitStats.map(s => [s.habit.id, s.currentStreak]))
@@ -142,25 +118,16 @@ export default function StatsPage() {
     yesCheckins.forEach(c => {
       const dv = habitMap.get(c.habit_id) ?? 0
       const s = streaksByHabit.get(c.habit_id) ?? 0
-      earned += dv * (s >= 365 ? 3 : s >= 30 ? 2 : s >= 7 ? 1.5 : 1)
+      earned += dv * getStreakMultiplier(s, cfg)
     })
     const spent = (redeemed ?? []).reduce((s, r) => s + r.price, 0)
     const uniqueDays = new Set((allCheckins ?? []).map(c => c.date)).size
     const best = Math.max(0, ...habitStats.map(s => s.longestStreak))
 
-    const days: DayBar[] = []
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i)
-      const dateStr = d.toISOString().split('T')[0]
-      const dayLabel = d.toLocaleDateString('en-SG', { weekday: 'short' })
-      days.push({ day: dayLabel, count: (allCheckins ?? []).filter(c => c.date === dateStr && c.response === 'yes').length })
-    }
-
     setStats(habitStats)
     setTotalBalance(Math.max(0, earned - spent))
     setTotalDaysCheckedIn(uniqueDays)
     setBestStreak(best)
-    setWeekData(days)
     setLoading(false)
   }, [])
 
@@ -273,26 +240,6 @@ export default function StatsPage() {
           <p className="text-emerald-700 font-extrabold text-lg">{bestStreak}</p>
           <p className="text-xs text-gray-500 mt-0.5">Best streak</p>
         </div>
-      </div>
-
-      {/* Weekly bar chart */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mb-4">
-        <p className="text-sm font-semibold text-gray-700 mb-4">Habits kept — last 7 days</p>
-        <ResponsiveContainer width="100%" height={120}>
-          <BarChart data={weekData} barSize={28}>
-            <XAxis dataKey="day" tick={{ fill: '#9ca3af', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis hide />
-            <Tooltip
-              contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
-              labelStyle={{ color: '#6b7280' }}
-              itemStyle={{ color: '#047857' }}
-              formatter={(v) => [`${v} habits`, '']}
-            />
-            <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-              {weekData.map((entry, i) => <Cell key={i} fill={entry.count > 0 ? '#047857' : '#e5e7eb'} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
       </div>
 
       {/* Per-habit section header + time range switcher */}

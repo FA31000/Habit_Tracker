@@ -16,13 +16,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 ## Features
 
 ### 1. Habits
-- Default habits on first login:
-  - Did I bite my nails?
-  - Did I do running or yoga?
-  - Did I avoid spending a lot of money?
-  - Did I spend enough time with my family?
-  - Did I read?
-  - Did I sleep 8 hours or more?
+- New accounts start empty — no default habits. Each user creates their own.
 - User can add, edit, and delete habits
 - Up/down arrow buttons on each habit to reorder; order persisted in localStorage
 - **Dynamic app icon color** (Android home screen) changes based on your longest active streak, like Duolingo:
@@ -47,6 +41,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 - If already checked in today, show today's results (read-only)
 - Each habit has three options per day: **Yes**, **No**, or **Freeze**
 - One freeze token per week, shared across all habits — using Freeze on a habit protects its streak for that day (max 1 use per week total)
+- Each habit's No button shows how many "No"s are left this week. This counter never goes below **0** — once you have used up (or exceeded) the weekly allowance, it stays at "0 nos left this week".
 - **Reading minutes popup**: when tapping Yes on "Did I read today?", a popup appears asking how many minutes were read. Minutes are stored in localStorage and shown in a Reading Stats section below the check-in.
 - **Exercise popup**: when tapping Yes on the exercise habit, a popup appears asking which exercise(s) you did (multi-select) and your weight in kg (optional). Both are stored in localStorage.
 - **Unified check-in popup**: any habit can have a fully configurable popup, triggered on Yes or No. Config stored in localStorage under `habit_popup_config`. Answers stored under `habit_popup_answers`. Each habit can have any number of questions of two types:
@@ -63,14 +58,22 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Days 7–29: 1.5x
   - Days 30–364: 2x
   - Days 365+: 3x
+- **Perfect day double**: on any day where every active habit is answered Yes (no No, no Freeze, none left blank), that day's total winnings are multiplied by 2. Applied across all days, so past perfect days count too.
 - Total balance shown in the configured currency symbol (default: S$)
 - Balance is displayed in the top green banner on every page (always visible)
 - Balance increases with daily check-ins, decreases when wishlist items are redeemed
 
 ### 4. Streaks
-- Per-habit streak counter (consecutive days kept)
-- Freeze token pauses streak without breaking it (max 1 use per week across all habits)
-- Missing a day without a freeze = streak resets to 0
+A streak is the number of **"Yes" days in a row** for a habit, counting backwards from today. Other answers are handled as follows:
+- **Yes** — adds 1 to the streak.
+- **Freeze** — the day is **skipped** (does not add, does not break). A freeze never adds to the number, it only protects the streak. The app only lets you record a freeze when one is available (1 per week, shared across all habits), so any saved freeze counts as valid.
+- **No** — the day is **skipped** as long as you are still within that habit's weekly "No" allowance (`allowed_no_days_per_week`). Once you go over the allowance in a given week, the streak **breaks**.
+- **Missed day (no answer logged)** — treated exactly like a **"No"**: it uses up the weekly allowance, and breaks the streak once you go over.
+- **Today, if not yet answered** — skipped: it does not count and does not break the streak (your number reflects up to yesterday until you answer today).
+- **Before your first ever check-in** — nothing is counted (no "missed day" penalty before the habit was first used).
+- Weeks run **Monday–Sunday**. When too many No/missed days land in one week, the streak breaks at the day that goes over the limit; only days after that point count toward the current streak.
+
+This is computed live from check-in history (the single source of truth) by `computeHabitStreak` in `src/lib/streak.ts`, used everywhere a streak appears: home page, Stats, Rewards/balance multiplier, Partner view, and badges. Saving a check-in recomputes the per-habit `streaks` table (current + longest) from full history so the Partner view stays accurate.
 
 ### 5. Badges (AA-style)
 Per habit, earned at streak milestones. Same color scale used everywhere (badges, app icon, stats):
@@ -81,12 +84,13 @@ Per habit, earned at streak milestones. Same color scale used everywhere (badges
 - 🩶 Platinum — 6-month streak (180 days)
 - 🏆 Championship Cup — 1-year streak (365 days)
 
+Badges are based on the **longest** streak a habit has ever reached and are kept permanently once earned (a later streak reset does not remove them).
+
 Badges displayed on a profile/trophy page per habit.
 
 ### 6. Stats Page
 - Per habit: current streak, longest streak, total days kept, success rate (%)
 - Overall: total dollar balance earned, total check-in days, best streak across all habits
-- Simple charts: weekly/monthly habit completion bar chart
 - **Time range switcher** (7 days / 30 days / All time) — controls all popup data visualizations below each habit card
 - **Popup data visualizations** per habit (shown below each habit's streak card, only if data exists):
   - **Number questions** (e.g. Weight, Minutes read): line graph over selected time range + summary stats (avg, total, entries)
@@ -95,7 +99,7 @@ Badges displayed on a profile/trophy page per habit.
 
 ### 7. Wishlist (Spending)
 - Add items with a name, price, and optional product URL (e.g. "New shoes — S$80")
-- Pre-loaded first wishlist item: Premium smartphone — S$2,000
+- New accounts start with an empty wishlist
 - Items show as locked until balance is sufficient
 - Mark as "Redeemed" — deducts price from dollar balance
 - Up/down arrow buttons on each reward to reorder; order persisted in localStorage

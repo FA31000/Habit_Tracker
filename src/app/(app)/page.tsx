@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit, Checkin } from '@/lib/types'
-import { DEFAULT_HABITS } from '@/lib/defaultHabits'
 import { getStreakMultiplier, BADGE_MILESTONES, loadAppConfig, type AppConfig } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
+import { computeHabitStreak } from '@/lib/streak'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze'>
 type MultiQuestion = { type: 'multi'; label: string; options: string[] }
@@ -88,12 +88,6 @@ export default function CheckInPage() {
     }
     if (!user) return
 
-    const { data: existingHabits } = await supabase.from('habits').select('id').eq('user_id', user.id)
-    if (existingHabits && existingHabits.length === 0) {
-      await supabase.from('habits').insert(DEFAULT_HABITS.map(h => ({ ...h, user_id: user!.id })))
-      await supabase.from('wishlist_items').insert({ user_id: user.id, name: 'Premium smartphone', price: 2000.00 })
-    }
-
     const { data: habitsData } = await supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true })
     const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate)
     const { data: freezeData } = await supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single()
@@ -113,29 +107,31 @@ export default function CheckInPage() {
       checkinsByHabit[c.habit_id][c.date] = c.response
     })
 
-    function computeStreak(habitId: string): number {
-      const byDate = checkinsByHabit[habitId] ?? {}
-      let streak = 0
-      const d = new Date(selectedDate)
-      d.setDate(d.getDate() - 1)
-      while (true) {
-        const dateStr = d.toISOString().split('T')[0]
-        const r = byDate[dateStr]
-        if (r === 'yes' || r === 'freeze') { streak++; d.setDate(d.getDate() - 1) } else break
-      }
-      return streak
-    }
-
     const habitMap = new Map((habitsData ?? []).map((h: Habit) => [h.id, h]))
     const computedStreaks: Record<string, number> = {}
-    ;(habitsData ?? []).forEach((h: Habit) => { computedStreaks[h.id] = computeStreak(h.id) })
+    ;(habitsData ?? []).forEach((h: Habit) => {
+      const byDate = checkinsByHabit[h.id] ?? {}
+      const list = Object.entries(byDate).map(([date, response]) => ({ date, response: response as 'yes' | 'no' | 'freeze' }))
+      computedStreaks[h.id] = computeHabitStreak(list, h.allowed_no_days_per_week, selectedDate).current
+    })
 
     const cfg = loadAppConfig()
+    const activeHabits = habitsData ?? []
+    const responsesByDate: Record<string, Record<string, string>> = {}
+    ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
+      if (!habitMap.has(c.habit_id)) return
+      if (!responsesByDate[c.date]) responsesByDate[c.date] = {}
+      responsesByDate[c.date][c.habit_id] = c.response
+    })
+
     let earned = 0
-    ;(allCheckins ?? []).filter((c: { response: string }) => c.response === 'yes').forEach((c: { habit_id: string }) => {
-      const habit = habitMap.get(c.habit_id)
-      const streak = computedStreaks[c.habit_id] ?? 0
-      if (habit) earned += habit.dollar_value * getStreakMultiplier(streak, cfg)
+    Object.values(responsesByDate).forEach(byHabit => {
+      let dayEarned = 0
+      activeHabits.forEach((h: Habit) => {
+        if (byHabit[h.id] === 'yes') dayEarned += h.dollar_value * getStreakMultiplier(computedStreaks[h.id] ?? 0, cfg)
+      })
+      const perfectDay = activeHabits.length > 0 && activeHabits.every((h: Habit) => byHabit[h.id] === 'yes')
+      earned += perfectDay ? dayEarned * 2 : dayEarned
     })
     const spent = (redeemed ?? []).reduce((sum: number, r: { price: number }) => sum + r.price, 0)
 
@@ -289,29 +285,24 @@ export default function CheckInPage() {
     if (!user) { setSaving(false); return }
     const earned: string[] = []
     for (const habit of habits) {
-      const response = checkins[habit.id]
-      if (!response) continue
-      const weekEndDate = new Date(weekStart)
-      weekEndDate.setDate(weekEndDate.getDate() + 6)
-      const { data: weekCheckins } = await supabase.from('checkins').select('response').eq('habit_id', habit.id).gte('date', weekStart).lte('date', weekEndDate.toISOString().split('T')[0])
-      const noDaysThisWeek = (weekCheckins ?? []).filter((c: { response: string }) => c.response === 'no').length
-      const streakContinues = response === 'yes' || response === 'freeze' || noDaysThisWeek <= habit.allowed_no_days_per_week
-      const { data: streakData } = await supabase.from('streaks').select('*').eq('habit_id', habit.id).single()
+      if (!checkins[habit.id]) continue
+      const { data: habitCheckins } = await supabase.from('checkins').select('date, response').eq('habit_id', habit.id).eq('user_id', user.id)
+      const list = (habitCheckins ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
+      const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, selectedDate)
+      const { data: streakData } = await supabase.from('streaks').select('id, longest_streak').eq('habit_id', habit.id).single()
+      const newLongest = Math.max(longest, streakData?.longest_streak ?? 0)
       if (streakData) {
-        const alreadyUpdatedToday = streakData.updated_at && streakData.updated_at.startsWith(selectedDate)
-        if (alreadyUpdatedToday) continue
-        const newCurrent = streakContinues ? streakData.current_streak + 1 : 0
-        const newLongest = Math.max(streakData.longest_streak, newCurrent)
-        await supabase.from('streaks').update({ current_streak: newCurrent, longest_streak: newLongest, updated_at: new Date().toISOString() }).eq('habit_id', habit.id)
-        for (const milestone of BADGE_MILESTONES) {
-          if (newCurrent >= milestone && streakData.current_streak < milestone) {
-            await supabase.from('badges').upsert({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
-            earned.push(`${habit.name} — ${milestone}-day badge!`)
-          }
-        }
+        await supabase.from('streaks').update({ current_streak: current, longest_streak: newLongest, updated_at: new Date().toISOString() }).eq('habit_id', habit.id)
       } else {
-        const newCurrent = streakContinues ? 1 : 0
-        await supabase.from('streaks').insert({ habit_id: habit.id, user_id: user.id, current_streak: newCurrent, longest_streak: newCurrent })
+        await supabase.from('streaks').insert({ habit_id: habit.id, user_id: user.id, current_streak: current, longest_streak: newLongest })
+      }
+      const { data: habitBadges } = await supabase.from('badges').select('milestone_days').eq('habit_id', habit.id)
+      const have = new Set((habitBadges ?? []).map((b: { milestone_days: number }) => b.milestone_days))
+      for (const milestone of BADGE_MILESTONES) {
+        if (newLongest >= milestone && !have.has(milestone)) {
+          await supabase.from('badges').upsert({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
+          earned.push(`${habit.name} — ${milestone}-day badge!`)
+        }
       }
     }
     setNewBadges(earned)
@@ -376,7 +367,7 @@ export default function CheckInPage() {
                   >
                     {response === 'no' ? getCheckinLabel(habit.id, 'no') : '❌ No'}
                   </button>
-                  <span className="text-xs text-gray-400">{habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0)} no{habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0) === 1 ? '' : 's'} left this week</span>
+                  <span className="text-xs text-gray-400">{Math.max(0, habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0))} no{Math.max(0, habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0)) === 1 ? '' : 's'} left this week</span>
                 </div>
                 <div className="flex-1 flex flex-col items-center gap-0.5">
                   <button
