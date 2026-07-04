@@ -46,7 +46,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - a **freeze toggle** ("❄️ Use a freeze to protect my streak"). Toggling it on saves the day as a Freeze instead of a No, protecting the streak. The toggle is grayed out and unusable once the week's single freeze has been used. When it is grayed out, a line shows where the freeze went: "❄️ Freeze used on [habit], [date]". Any configured "why not?" question is still asked even when the freeze is used.
 - One freeze token per week, shared across all habits. A freeze belongs to the **week of the day it protects** — on a past date, the freeze toggle and "No"s-left count reflect that date's own week, so a forgotten day can be backfilled with a freeze if that week's freeze is unused.
 - On the card, the selected No button is colour-coded: **orange** when the No is within the habit's weekly allowance (an allowed No that does not break the streak), **red** when the allowance is used up (this No breaks the streak), and **blue** labelled "❄️ Frozen" when a freeze was used.
-- **Badge-coloured cards**: each habit card is tinted with the colour of the badge its **current streak** has reached (a light fill of the badge colour plus a matching border). The colour follows the live current streak, not the permanent earned badge — so breaking a streak drops the card back to plain white until the milestone is reached again. Uses `getStreakBadge` against the current streak; below the first milestone (5 days) the card stays white. When a badge is active, the card header also shows its name in days (e.g. "🟡 90-day badge") between the habit name and the dollar value, so the colour is self-explanatory.
+- **Badge-coloured cards**: each habit card is tinted with the colour of the badge its **current streak** has reached (a light fill of the badge colour, no border). The colour follows the live current streak, not the permanent earned badge — so breaking a streak drops the card back to plain white until the milestone is reached again. Uses `getStreakBadge` against the current streak; below the first milestone (5 days) the card stays white. When a badge is active, the card header also shows its name in days (e.g. "🟡 90-day badge") between the habit name and the dollar value, so the colour is self-explanatory.
 - **Editing / clearing**: tapping a habit that already has an answer reopens the popup pre-filled with the previous answer. The popup has a **Clear** button to remove the answer entirely (which also releases the freeze token if that day was frozen).
 - **Unified check-in popup config**: any habit can have a fully configurable set of popup questions, triggered on Yes or No. Config is stored in Supabase in the `habits.question_config` column (jsonb). Answers are stored in Supabase in the `checkins.answers` column (jsonb), one blob per checkin row. Each habit can have any number of questions of two types:
   - **Multi-choice**: a label + list of options (multi-select buttons, 2-column grid)
@@ -124,8 +124,8 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
     - **Perfect days**: when a user answers Yes to every active habit on a day, a "🌟 Person had a perfect day — every habit done!" item appears with the date. Recorded in the `perfect_days` table when Save Check-In is tapped on a perfect day, and removed if that day later stops being perfect. No thumbs-up or comments on perfect-day items.
   - **Thumbs-up** on each badge: one per person, tap again to undo. Shows the count and the names of who cheered. You cannot thumbs-up your own badge.
   - **Comments** on each badge: short text (max 280 chars), multiple people, visible to everyone including the earner. You can delete your own comment; no editing. You cannot comment on your own badge.
-- **Friend profile page** (`/friends/[id]`): shows that person's habit names, current streak, best streak, and full badge set. Money balance, wishlist, descriptions, and daily check-in detail stay private.
-- **Privacy/data access**: any signed-in user can read every user's display name, habit names, streaks, badges, and perfect days (the `perfect_days` table exposes only user_id + date, never which habits or their values). A `public_habits` view exposes only safe habit columns (id, user_id, name, is_active, created_at) — never dollar value or description.
+- **Friend profile page** (`/friends/[id]`): shows the same per-habit cards as your own Stats page — habit name, current streak, best streak, success rate, earned badges, plus the activity charts (number trends and multi-choice bars) with the same 7 days / 30 days / All time switcher. Money balance and wishlist stay private.
+- **Privacy/data access**: any signed-in user can read every user's display name, habit names, streaks, badges, perfect days (the `perfect_days` table exposes only user_id + date, never which habits or their values), and daily check-ins. A `public_habits` view exposes safe habit columns (id, user_id, name, is_active, created_at, question_config, allowed_no_days_per_week) — never dollar value or description. A `public_checkins` view exposes check-in columns (id, habit_id, user_id, date, response, answers) so friends see the same stats as the owner.
 - In-app only — no push notifications for friend activity.
 
 ### 9. Push Notifications (Android PWA)
@@ -155,7 +155,8 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 - `profiles` — id (= auth user id), display_name, created_at
 - `badge_thumbs` — id, badge_id, user_id, created_at (unique per badge+user)
 - `badge_comments` — id, badge_id, user_id, body, created_at
-- `public_habits` (view) — id, user_id, name, is_active, created_at (safe columns only, readable by all signed-in users)
+- `public_habits` (view) — id, user_id, name, is_active, created_at, question_config, allowed_no_days_per_week (safe columns only, readable by all signed-in users)
+- `public_checkins` (view) — id, habit_id, user_id, date, response, answers (readable by all signed-in users, so friends see the same stats)
 - `feedback` — id, user_id, user_email, message, done (boolean), created_at
 - *(removed: `share_links`, `reactions` — old Accountability Partner feature)*
 
@@ -191,6 +192,8 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 - `public_habits` view + open read access on streaks/badges; old share-link feature removed
 
 ### Phase 7 — Settings (Configurable Variables) ✅
+- **Access**: the Settings page is reached via a gear icon in the top-right of the app header (not a bottom-nav tab). This keeps the bottom bar less cramped, especially for the admin who also has an Admin tab.
+- **Personalised header tagline**: the app header subtitle reads "Build the new [name]", where the name is the logged-in user's `display_name` (falling back to the email prefix). Fetched server-side in the app layout. The login page (no account yet) reads "Build the new you".
 - **Streak Bonuses**: editable tier thresholds and multipliers (stored in localStorage, applied immediately to balance calculation)
   - Tier 1: after N days → multiplier (default: 7 days → 1.5×)
   - Tier 2: after N days → multiplier (default: 30 days → 2×)

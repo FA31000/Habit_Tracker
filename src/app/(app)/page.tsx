@@ -324,8 +324,8 @@ export default function CheckInPage() {
           return (
             <div
               key={habit.id}
-              className={`rounded-xl px-3 py-2 shadow-sm ${badge ? 'border' : 'bg-white ring-1 ring-black/5'}`}
-              style={badge ? { backgroundColor: badge.color + '22', borderColor: badge.color } : undefined}
+              className={`rounded-xl px-3 py-2 shadow-sm ${badge ? '' : 'bg-white ring-1 ring-black/5'}`}
+              style={badge ? { backgroundColor: badge.color + '22' } : undefined}
             >
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>

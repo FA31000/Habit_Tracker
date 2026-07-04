@@ -50,7 +50,7 @@ export default function LoginPage() {
             🌱
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">Habit Tracker</h1>
-          <p className="text-emerald-100/80 text-sm mt-1">Build the new FA</p>
+          <p className="text-emerald-100/80 text-sm mt-1">Build the new you</p>
         </div>
 
         {signedUp ? (

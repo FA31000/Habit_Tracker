@@ -1,57 +1,136 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { BADGE_CONFIG, BADGE_MILESTONES, getStreakBadge } from '@/lib/types'
+import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
+import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
+import { computeHabitStreak, todayDate } from '@/lib/streak'
+import { defaultConfigForName } from '@/lib/popupDefaults'
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
-type HabitView = {
-  id: string
-  name: string
+type HabitStats = {
+  habit: Habit
   currentStreak: number
   longestStreak: number
+  totalKept: number
+  totalDays: number
+  successRate: number
   earnedBadges: number[]
+}
+
+type TimeRange = '7d' | '30d' | 'all'
+
+function getCutoffDate(range: TimeRange): string | null {
+  if (range === 'all') return null
+  const d = new Date()
+  d.setDate(d.getDate() - (range === '7d' ? 7 : 30))
+  return d.toISOString().split('T')[0]
 }
 
 export default function FriendProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const supabase = createClient()
   const [id, setId] = useState<string>('')
   const [name, setName] = useState<string | null>(null)
-  const [habits, setHabits] = useState<HabitView[]>([])
+  const [stats, setStats] = useState<HabitStats[]>([])
+  const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, PopupAnswers>>({})
+  const [timeRange, setTimeRange] = useState<TimeRange>('30d')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { params.then(p => setId(p.id)) }, [params])
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!id) return
-    async function load() {
-      const { data: profile } = await supabase.from('profiles').select('display_name').eq('id', id).single()
-      setName(profile?.display_name ?? null)
+    const { data: profile } = await supabase.from('profiles').select('display_name').eq('id', id).single()
+    setName(profile?.display_name ?? null)
 
-      const [{ data: habitsData }, { data: streaks }, { data: badges }] = await Promise.all([
-        supabase.from('public_habits').select('id, name').eq('user_id', id).eq('is_active', true).order('created_at', { ascending: true }),
-        supabase.from('streaks').select('habit_id, current_streak, longest_streak').eq('user_id', id),
-        supabase.from('badges').select('habit_id, milestone_days').eq('user_id', id),
-      ])
+    const [{ data: habits }, { data: allCheckins }, { data: badges }] = await Promise.all([
+      supabase.from('public_habits').select('*').eq('user_id', id).eq('is_active', true).order('created_at', { ascending: true }),
+      supabase.from('public_checkins').select('*').eq('user_id', id),
+      supabase.from('badges').select('*').eq('user_id', id),
+    ])
 
-      const streakMap = new Map((streaks ?? []).map(s => [s.habit_id, s]))
-      const badgeMap = new Map<string, number[]>()
-      ;(badges ?? []).forEach(b => {
-        if (!badgeMap.has(b.habit_id)) badgeMap.set(b.habit_id, [])
-        badgeMap.get(b.habit_id)!.push(b.milestone_days)
-      })
+    const ansMap: Record<string, PopupAnswers> = {}
+    ;(allCheckins ?? []).forEach(c => { if (c.answers) ansMap[c.habit_id + '_' + c.date] = c.answers })
+    setHabitPopupAnswers(ansMap)
 
-      setHabits((habitsData ?? []).map(h => ({
-        id: h.id,
-        name: h.name,
-        currentStreak: streakMap.get(h.id)?.current_streak ?? 0,
-        longestStreak: streakMap.get(h.id)?.longest_streak ?? 0,
-        earnedBadges: (badgeMap.get(h.id) ?? []).sort((a, b) => a - b),
-      })))
-      setLoading(false)
-    }
-    load()
+    const badgeMap = new Map<string, number[]>()
+    ;(badges ?? []).forEach(b => {
+      if (!badgeMap.has(b.habit_id)) badgeMap.set(b.habit_id, [])
+      badgeMap.get(b.habit_id)!.push(b.milestone_days)
+    })
+
+    const today = todayDate()
+
+    const habitStats: HabitStats[] = (habits ?? []).map((habit: Habit) => {
+      const hc = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
+      const kept = hc.filter(c => c.response === 'yes').length
+      const total = hc.length
+      const list = hc.map(c => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
+      const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, today)
+      return {
+        habit,
+        currentStreak: current,
+        longestStreak: longest,
+        totalKept: kept,
+        totalDays: total,
+        successRate: total > 0 ? Math.round((kept / total) * 100) : 0,
+        earnedBadges: (badgeMap.get(habit.id) ?? []).sort((a, b) => a - b),
+      }
+    })
+
+    setStats(habitStats)
+    setLoading(false)
   }, [id])
+
+  useEffect(() => { load() }, [load])
+
+  function getPopupConfig(habit: Habit): HabitPopupConfig | null {
+    return habit.question_config ?? defaultConfigForName(habit.name)
+  }
+
+  function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {
+    const cutoff = getCutoffDate(timeRange)
+    const byDate = new Map<string, number>()
+
+    Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
+      const idx = key.lastIndexOf('_')
+      if (key.substring(0, idx) !== habitId) return
+      const date = key.substring(idx + 1)
+      if (cutoff && date < cutoff) return
+      const val = ans[q.label]
+      if (val !== undefined && val !== '') {
+        const n = parseFloat(val as string)
+        if (!isNaN(n)) byDate.set(date, n)
+      }
+    })
+
+    return Array.from(byDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, value]) => ({
+        date,
+        label: new Date(date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short' }),
+        value,
+      }))
+  }
+
+  function getMultiData(habitId: string, q: MultiQuestion): { option: string; count: number }[] {
+    const cutoff = getCutoffDate(timeRange)
+    const counts: Record<string, number> = {}
+
+    Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
+      const idx = key.lastIndexOf('_')
+      if (key.substring(0, idx) !== habitId) return
+      const date = key.substring(idx + 1)
+      if (cutoff && date < cutoff) return
+      const val = ans[q.label]
+      if (Array.isArray(val)) val.forEach(opt => { counts[opt] = (counts[opt] ?? 0) + 1 })
+    })
+
+    return Object.entries(counts)
+      .map(([option, count]) => ({ option, count }))
+      .sort((a, b) => b.count - a.count)
+  }
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
@@ -62,52 +141,161 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
     </div>
   )
 
+  const RANGE_LABELS: Record<TimeRange, string> = { '7d': '7 days', '30d': '30 days', 'all': 'All time' }
+
   return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
+    <div className="p-4">
+      <div className="flex items-center justify-between mb-3">
         <h1 className="text-lg font-bold text-gray-900">{name}</h1>
         <Link href="/friends" className="text-emerald-700 text-sm font-medium">← Friends</Link>
       </div>
 
-      {habits.length === 0 && (
+      {stats.length === 0 && (
         <div className="bg-white rounded-2xl p-6 shadow-sm ring-1 ring-black/5 text-center">
           <p className="text-gray-400 text-sm">No active habits yet.</p>
         </div>
       )}
 
-      {habits.map(h => {
-        const topBadge = getStreakBadge(h.currentStreak)
-        return (
-          <div key={h.id} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
-            <div className="flex items-start justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{h.name}</p>
-              {topBadge && <span className="text-xl">{topBadge.emoji}</span>}
-            </div>
-            <div className="flex gap-4 mb-3">
-              <div className="text-center">
-                <p className="text-gray-900 font-bold text-lg">{h.currentStreak}</p>
-                <p className="text-xs text-gray-400">Streak</p>
-              </div>
-              <div className="text-center">
-                <p className="text-gray-500 font-bold text-lg">{h.longestStreak}</p>
-                <p className="text-xs text-gray-400">Best</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {BADGE_MILESTONES.map(m => {
-                const cfg = BADGE_CONFIG[m]
-                const earned = h.earnedBadges.includes(m)
-                return (
-                  <div key={m} title={`${m}-day badge`}
-                    className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
-                    {cfg.emoji}
+      {stats.length > 0 && (
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Per habit</p>
+          <div className="flex bg-gray-100 rounded-xl p-0.5 gap-0.5">
+            {(['7d', '30d', 'all'] as TimeRange[]).map(r => (
+              <button
+                key={r}
+                onClick={() => setTimeRange(r)}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${timeRange === r ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+              >
+                {RANGE_LABELS[r]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {stats.map(s => {
+          const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
+          const popupConfig = getPopupConfig(s.habit)
+
+          return (
+            <div key={s.habit.id}>
+              {/* Streak card */}
+              <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
+                <div className="flex items-start justify-between mb-3">
+                  <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
+                  {topBadge && <span className="text-lg" title={`${topBadge.label} badge`}>{topBadge.emoji}</span>}
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">{s.currentStreak}</p>
+                    <p className="text-xs text-gray-400">Streak</p>
                   </div>
-                )
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">{s.longestStreak}</p>
+                    <p className="text-xs text-gray-400">Best</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-gray-900 font-bold">{s.successRate}%</p>
+                    <p className="text-xs text-gray-400">Rate</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  {BADGE_MILESTONES.map(m => {
+                    const cfg = BADGE_CONFIG[m]
+                    const earned = s.earnedBadges.includes(m)
+                    return (
+                      <div key={m} title={`${m}-day badge`}
+                        className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
+                        {cfg.emoji}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Popup data visualizations */}
+              {popupConfig && popupConfig.questions.map((q, qi) => {
+                if (q.type === 'number') {
+                  const data = getNumberData(s.habit.id, q)
+                  if (data.length === 0) return null
+                  const values = data.map(d => d.value)
+                  const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+                  const total = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10
+                  const vMin = Math.floor(Math.min(...values) * 0.95)
+                  const vMax = Math.ceil(Math.max(...values) * 1.05)
+                  const showLine = data.length > 1
+                  return (
+                    <div key={qi} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
+                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">
+                        {q.label}{q.unit ? ` (${q.unit})` : ''}
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <div className="text-center">
+                          <p className="text-gray-900 font-bold">{avg}{q.unit ? ` ${q.unit}` : ''}</p>
+                          <p className="text-xs text-gray-400">Avg</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-gray-900 font-bold">{total}{q.unit ? ` ${q.unit}` : ''}</p>
+                          <p className="text-xs text-gray-400">Total</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-gray-900 font-bold">{data.length}</p>
+                          <p className="text-xs text-gray-400">Entries</p>
+                        </div>
+                      </div>
+                      {showLine && (
+                        <ResponsiveContainer width="100%" height={110}>
+                          <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                            <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                            <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} domain={[vMin, vMax]} allowDecimals />
+                            <Tooltip
+                              contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                              labelStyle={{ color: '#6b7280' }}
+                              itemStyle={{ color: '#047857' }}
+                              formatter={(v) => [`${v}${q.unit ? ' ' + q.unit : ''}`, '']}
+                            />
+                            <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={<Dot r={3} fill="#047857" />} activeDot={{ r: 5 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  )
+                }
+
+                if (q.type === 'multi') {
+                  const data = getMultiData(s.habit.id, q)
+                  if (data.length === 0) return null
+                  const maxCount = Math.max(...data.map(d => d.count))
+                  return (
+                    <div key={qi} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
+                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">{q.label}</p>
+                      <div className="space-y-2">
+                        {data.map(({ option, count }) => (
+                          <div key={option} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-28 flex-shrink-0 text-right truncate">{option}</span>
+                            <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                              <div
+                                className="bg-emerald-600 h-5 rounded-full transition-all"
+                                style={{ width: `${(count / maxCount) * 100}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold text-gray-700 w-4 text-right">{count}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-2 text-right">{RANGE_LABELS[timeRange]}</p>
+                    </div>
+                  )
+                }
+
+                return null
               })}
             </div>
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }

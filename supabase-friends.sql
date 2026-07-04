@@ -129,3 +129,25 @@ create policy "badge_comments: delete own" on badge_comments
 -- =========================================================
 drop table if exists reactions;
 drop table if exists share_links cascade;
+
+-- =========================================================
+-- 6. FULL STATS FOR FRIENDS — expose check-ins + habit config
+-- =========================================================
+-- Extend the public habits view with the question setup and the weekly
+-- "no" allowance, so a friend's stats page can render the same charts and
+-- streak logic as your own. Dollar value is still NOT exposed.
+create or replace view public_habits
+with (security_invoker = off) as
+  select id, user_id, name, is_active, created_at, question_config, allowed_no_days_per_week
+  from habits;
+
+grant select on public_habits to authenticated;
+
+-- Safe check-in columns for every user, so friends can see the same
+-- success rate and activity charts as on your own stats page.
+create or replace view public_checkins
+with (security_invoker = off) as
+  select id, habit_id, user_id, date, response, answers
+  from checkins;
+
+grant select on public_checkins to authenticated;
