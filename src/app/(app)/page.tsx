@@ -2,31 +2,21 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Habit, Checkin } from '@/lib/types'
-import { getStreakMultiplier, BADGE_MILESTONES, loadAppConfig, type AppConfig } from '@/lib/types'
+import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types'
+import { BADGE_MILESTONES, getStreakBadge, loadAppConfig, type AppConfig } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
-import { computeHabitStreak } from '@/lib/streak'
+import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
+import { dayEarnings } from '@/lib/balance'
+import { defaultConfigForName } from '@/lib/popupDefaults'
+import { migrateLocalDataToSupabase } from '@/lib/migrate'
+import Confetti from '@/components/Confetti'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze'>
-type MultiQuestion = { type: 'multi'; label: string; options: string[] }
-type NumberQuestion = { type: 'number'; label: string; unit: string }
-type PopupQuestion = MultiQuestion | NumberQuestion
-type HabitPopupConfig = { trigger: 'yes' | 'no'; questions: PopupQuestion[] }
-type PopupAnswers = Record<string, string[] | string>
 
 const MIN_DATE = '2026-06-27'
 
 function todayDate() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
-}
-
-function getWeekStart(dateStr: string) {
-  const d = new Date(dateStr + 'T00:00:00')
-  const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-  const monday = new Date(d)
-  monday.setDate(diff)
-  return monday.toISOString().split('T')[0]
 }
 
 function formatDate(dateStr: string) {
@@ -39,22 +29,6 @@ function addDays(dateStr: string, days: number) {
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
 }
 
-const DEFAULT_EXERCISE_CONFIG: HabitPopupConfig = {
-  trigger: 'yes',
-  questions: [
-    { type: 'multi', label: 'What did you do?', options: ['Running', 'Swimming', 'Biking', 'Resistance', 'Yoga', 'Other'] },
-    { type: 'number', label: 'Weight', unit: 'kg' },
-  ],
-}
-const DEFAULT_READING_CONFIG: HabitPopupConfig = {
-  trigger: 'yes',
-  questions: [{ type: 'number', label: 'Minutes read', unit: 'min' }],
-}
-const DEFAULT_EATING_CONFIG: HabitPopupConfig = {
-  trigger: 'no',
-  questions: [{ type: 'multi', label: 'Why not?', options: ['Sugar', 'Alcohol', 'Carbs at dinner', 'Other'] }],
-}
-
 export default function CheckInPage() {
   const [habits, setHabits] = useState<Habit[]>([])
   const [checkins, setCheckins] = useState<CheckinMap>({})
@@ -63,18 +37,21 @@ export default function CheckInPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
+  const [showConfetti, setShowConfetti] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [weeklyNoCounts, setWeeklyNoCounts] = useState<Record<string, number>>({})
   const [selectedDate, setSelectedDate] = useState(todayDate)
   const [streaks, setStreaks] = useState<Record<string, number>>({})
+  const [habitCheckinLists, setHabitCheckinLists] = useState<Record<string, StreakCheckin[]>>({})
   const [appConfig, setAppConfig] = useState<AppConfig>(loadAppConfig())
 
   // Unified popup state
-  const [habitPopupConfig, setHabitPopupConfig] = useState<Record<string, HabitPopupConfig>>({})
   const [savedPopupAnswers, setSavedPopupAnswers] = useState<Record<string, PopupAnswers>>({})
   const [popupOpen, setPopupOpen] = useState(false)
   const [pendingPopupHabitId, setPendingPopupHabitId] = useState<string | null>(null)
+  const [pendingResponse, setPendingResponse] = useState<'yes' | 'no'>('yes')
   const [popupCurrentAnswers, setPopupCurrentAnswers] = useState<PopupAnswers>({})
+  const [popupFreeze, setPopupFreeze] = useState(false)
 
   const supabase = createClient()
   const today = todayDate()
@@ -92,7 +69,6 @@ export default function CheckInPage() {
     const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate)
     const { data: freezeData } = await supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single()
     const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
-    const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
     const weekEndDate = new Date(weekStart)
     weekEndDate.setDate(weekEndDate.getDate() + 6)
@@ -107,40 +83,30 @@ export default function CheckInPage() {
       checkinsByHabit[c.habit_id][c.date] = c.response
     })
 
-    const habitMap = new Map((habitsData ?? []).map((h: Habit) => [h.id, h]))
     const computedStreaks: Record<string, number> = {}
+    const lists: Record<string, StreakCheckin[]> = {}
     ;(habitsData ?? []).forEach((h: Habit) => {
       const byDate = checkinsByHabit[h.id] ?? {}
       const list = Object.entries(byDate).map(([date, response]) => ({ date, response: response as 'yes' | 'no' | 'freeze' }))
+      lists[h.id] = list
       computedStreaks[h.id] = computeHabitStreak(list, h.allowed_no_days_per_week, selectedDate).current
     })
+    setHabitCheckinLists(lists)
 
     const cfg = loadAppConfig()
     const activeHabits = habitsData ?? []
-    const responsesByDate: Record<string, Record<string, string>> = {}
-    ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
-      if (!habitMap.has(c.habit_id)) return
-      if (!responsesByDate[c.date]) responsesByDate[c.date] = {}
-      responsesByDate[c.date][c.habit_id] = c.response
-    })
-
-    let earned = 0
-    Object.values(responsesByDate).forEach(byHabit => {
-      let dayEarned = 0
-      activeHabits.forEach((h: Habit) => {
-        if (byHabit[h.id] === 'yes') dayEarned += h.dollar_value * getStreakMultiplier(computedStreaks[h.id] ?? 0, cfg)
-      })
-      const perfectDay = activeHabits.length > 0 && activeHabits.every((h: Habit) => byHabit[h.id] === 'yes')
-      earned += perfectDay ? dayEarned * 2 : dayEarned
-    })
-    const spent = (redeemed ?? []).reduce((sum: number, r: { price: number }) => sum + r.price, 0)
 
     setStreaks(computedStreaks)
     setHabits(applyStoredOrder(habitsData ?? []))
-    setBalance(Math.max(0, earned - spent))
+    setBalance(dayEarnings(selectedDate, activeHabits, lists, cfg))
     const map: CheckinMap = {}
-    ;(checkinsData ?? []).forEach((c: Checkin) => { map[c.habit_id] = c.response })
+    const ansMap: Record<string, PopupAnswers> = {}
+    ;(checkinsData ?? []).forEach((c: Checkin) => {
+      map[c.habit_id] = c.response
+      if (c.answers) ansMap[c.habit_id + '_' + c.date] = c.answers
+    })
     setCheckins(map)
+    setSavedPopupAnswers(ansMap)
     setFreezeUsed(freezeData?.used ?? false)
     setDone((habitsData ?? []).every((h: Habit) => map[h.id]))
     setLoading(false)
@@ -148,38 +114,24 @@ export default function CheckInPage() {
 
   useEffect(() => { setLoading(true); setCheckins({}); load() }, [load])
 
+  // One-time migration of old localStorage popup data into Supabase, then reload.
   useEffect(() => {
-    const stored = localStorage.getItem('habit_popup_config')
-    if (stored) setHabitPopupConfig(JSON.parse(stored))
-  }, [])
-
-  useEffect(() => {
-    const stored = localStorage.getItem('habit_popup_answers')
-    if (stored) setSavedPopupAnswers(JSON.parse(stored))
+    migrateLocalDataToSupabase(supabase).then(() => load())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
     function onStorage(e: StorageEvent) {
       if (e.key === 'app_config') setAppConfig(loadAppConfig())
-      if (e.key === 'habit_popup_config') {
-        const s = localStorage.getItem('habit_popup_config')
-        if (s) setHabitPopupConfig(JSON.parse(s))
-      }
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [])
 
-  const readingHabit = habits.find(h => h.name.toLowerCase().includes('read'))
-  const exerciseHabit = habits.find(h => h.name.toLowerCase().includes('exercise') || h.name.toLowerCase().includes('workout') || h.name.toLowerCase().includes('gym'))
-  const eatingHabit = habits.find(h => h.name.toLowerCase().includes('eat') || h.name.toLowerCase().includes('healthy'))
-
   function getPopupConfig(habitId: string): HabitPopupConfig | null {
-    if (habitPopupConfig[habitId]) return habitPopupConfig[habitId]
-    if (exerciseHabit?.id === habitId) return DEFAULT_EXERCISE_CONFIG
-    if (readingHabit?.id === habitId) return DEFAULT_READING_CONFIG
-    if (eatingHabit?.id === habitId) return DEFAULT_EATING_CONFIG
-    return null
+    const habit = habits.find(h => h.id === habitId)
+    if (!habit) return null
+    return habit.question_config ?? defaultConfigForName(habit.name)
   }
 
   function getCheckinLabel(habitId: string, response: 'yes' | 'no'): string {
@@ -198,85 +150,101 @@ export default function CheckInPage() {
     return parts.length > 0 ? `${icon} ${word} (${parts.join(', ')})` : `${icon} ${word}`
   }
 
-  async function answer(habitId: string, response: 'yes' | 'no' | 'freeze') {
-    const config = getPopupConfig(habitId)
-    if (config && response === config.trigger && checkins[habitId] !== response) {
-      setPendingPopupHabitId(habitId)
-      setPopupCurrentAnswers({})
-      setPopupOpen(true)
-      return
+  // Streak the habit would have if selectedDate held `response` (null = day left unanswered).
+  function projectStreak(habit: Habit, response: 'yes' | 'no' | 'freeze' | null): number {
+    const list = (habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate)
+    const hypo = response ? [...list, { date: selectedDate, response }] : list
+    return computeHabitStreak(hypo, habit.allowed_no_days_per_week, selectedDate).current
+  }
+
+  // "No" days remaining this week, not counting the day being edited.
+  function nosLeftThisWeek(habit: Habit): number {
+    const list = habitCheckinLists[habit.id] ?? []
+    const count = list.filter(c => c.date !== selectedDate && c.response === 'no' && getWeekStart(c.date) === weekStart).length
+    return Math.max(0, habit.allowed_no_days_per_week - count)
+  }
+
+  // Whether a "no" on selectedDate is within this habit's weekly allowance
+  // (i.e. an allowed "no" that does not break the streak).
+  function noWithinAllowance(habit: Habit): boolean {
+    const list = habitCheckinLists[habit.id] ?? []
+    const before = list.filter(c => c.date < selectedDate && c.response === 'no' && getWeekStart(c.date) === weekStart).length
+    return before < habit.allowed_no_days_per_week
+  }
+
+  // The habit + day that used this week's freeze, if any.
+  function freezeUsage(): { habitName: string; date: string } | null {
+    for (const h of habits) {
+      const hit = (habitCheckinLists[h.id] ?? []).find(c => c.response === 'freeze' && getWeekStart(c.date) === weekStart)
+      if (hit) return { habitName: h.name, date: hit.date }
     }
-    await doAnswer(habitId, response)
+    return null
+  }
+
+  function shortDate(dateStr: string) {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-SG', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+
+  function openPopup(habitId: string, response: 'yes' | 'no') {
+    const key = habitId + '_' + selectedDate
+    setPendingPopupHabitId(habitId)
+    setPendingResponse(response)
+    setPopupCurrentAnswers(savedPopupAnswers[key] ? { ...savedPopupAnswers[key] } : {})
+    setPopupFreeze(response === 'no' && checkins[habitId] === 'freeze')
+    setPopupOpen(true)
+  }
+
+  function closePopup() {
+    setPopupOpen(false)
+    setPopupCurrentAnswers({})
+    setPendingPopupHabitId(null)
+    setPopupFreeze(false)
   }
 
   async function confirmPopup() {
     if (!pendingPopupHabitId) return
     const config = getPopupConfig(pendingPopupHabitId)
-    const key = pendingPopupHabitId + '_' + selectedDate
-
-    const updated = { ...savedPopupAnswers, [key]: popupCurrentAnswers }
-    setSavedPopupAnswers(updated)
-    localStorage.setItem('habit_popup_answers', JSON.stringify(updated))
-
-    // Maintain legacy keys for stats page
-    if (config) {
-      if (exerciseHabit?.id === pendingPopupHabitId) {
-        const multiQ = config.questions.find(q => q.type === 'multi') as MultiQuestion | undefined
-        const numQ = config.questions.find(q => q.type === 'number') as NumberQuestion | undefined
-        const entry: { weight?: number; types?: string[] } = {}
-        if (multiQ) { const a = popupCurrentAnswers[multiQ.label]; if (Array.isArray(a)) entry.types = a }
-        if (numQ) { const a = popupCurrentAnswers[numQ.label]; if (a && a !== '') entry.weight = parseFloat(a as string) }
-        const stored = localStorage.getItem('exercise_data')
-        const all = stored ? JSON.parse(stored) : {}
-        all[key] = entry
-        localStorage.setItem('exercise_data', JSON.stringify(all))
-      }
-      if (readingHabit?.id === pendingPopupHabitId) {
-        const numQ = config.questions.find(q => q.type === 'number') as NumberQuestion | undefined
-        if (numQ) {
-          const a = popupCurrentAnswers[numQ.label]
-          if (a && a !== '') {
-            const stored = localStorage.getItem('reading_minutes')
-            const all = stored ? JSON.parse(stored) : {}
-            all[key] = parseFloat(a as string)
-            localStorage.setItem('reading_minutes', JSON.stringify(all))
-          }
-        }
-      }
-    }
-
-    await doAnswer(pendingPopupHabitId, config!.trigger)
-    setPopupOpen(false)
-    setPopupCurrentAnswers({})
-    setPendingPopupHabitId(null)
+    const showQuestions = !!config && config.trigger === pendingResponse
+    const finalResponse = pendingResponse === 'no' && popupFreeze ? 'freeze' : pendingResponse
+    await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
+    closePopup()
   }
 
-  async function doAnswer(habitId: string, response: 'yes' | 'no' | 'freeze') {
+  async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze', answers: PopupAnswers) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+    const key = habitId + '_' + selectedDate
+    const prev = checkins[habitId]
 
-    if (checkins[habitId] === response) {
-      await supabase.from('checkins').delete().eq('habit_id', habitId).eq('user_id', user.id).eq('date', selectedDate)
-      if (response === 'freeze') {
-        await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
-        setFreezeUsed(false)
-      }
-      setCheckins(prev => { const next = { ...prev }; delete next[habitId]; return next })
-      setDone(false)
-      return
-    }
-
-    if (response === 'freeze') {
+    if (response === 'freeze' && prev !== 'freeze') {
       if (freezeUsed) return
       await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: true })
       setFreezeUsed(true)
+    } else if (response !== 'freeze' && prev === 'freeze') {
+      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
+      setFreezeUsed(false)
     }
-    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: selectedDate, response })
-    setCheckins(prev => {
-      const next = { ...prev, [habitId]: response }
-      if (habits.every(h => next[h.id])) setDone(false)
-      return next
-    })
+
+    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: selectedDate, response, answers })
+    setCheckins(p => ({ ...p, [habitId]: response }))
+    setSavedPopupAnswers(p => ({ ...p, [key]: answers }))
+    setDone(false)
+  }
+
+  async function clearCheckin(habitId: string) {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const key = habitId + '_' + selectedDate
+    const prev = checkins[habitId]
+    await supabase.from('checkins').delete().eq('habit_id', habitId).eq('user_id', user.id).eq('date', selectedDate)
+    if (prev === 'freeze') {
+      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
+      setFreezeUsed(false)
+    }
+    setCheckins(p => { const next = { ...p }; delete next[habitId]; return next })
+    setSavedPopupAnswers(p => { const next = { ...p }; delete next[key]; return next })
+    setDone(false)
+    closePopup()
   }
 
   async function saveAll() {
@@ -305,9 +273,16 @@ export default function CheckInPage() {
         }
       }
     }
+    const perfectDay = habits.length > 0 && habits.every(h => checkins[h.id] === 'yes')
+    if (perfectDay) {
+      await supabase.from('perfect_days').upsert({ user_id: user.id, date: selectedDate }, { onConflict: 'user_id,date', ignoreDuplicates: true })
+    } else {
+      await supabase.from('perfect_days').delete().eq('user_id', user.id).eq('date', selectedDate)
+    }
     setNewBadges(earned)
     setSaving(false)
     setDone(true)
+    if (perfectDay) setShowConfetti(true)
     await load()
   }
 
@@ -318,6 +293,7 @@ export default function CheckInPage() {
 
   return (
     <div className="p-3">
+      {showConfetti && <Confetti onDone={() => setShowConfetti(false)} />}
       <div className="flex items-center justify-between mb-2 mt-1">
         <button
           onClick={() => { setSelectedDate(prev => addDays(prev, -1)); setDone(false) }}
@@ -337,46 +313,40 @@ export default function CheckInPage() {
         >›</button>
       </div>
 
-      <div className="flex items-center mb-2 mt-1">
+      <div className="flex items-center mb-1.5">
         <p className="text-sm text-gray-500">{answered}/{habits.length} answered</p>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {habits.map(habit => {
           const response = checkins[habit.id]
+          const badge = getStreakBadge(streaks[habit.id] ?? 0)
           return (
-            <div key={habit.id} className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5">
-              <div className="flex items-center justify-between mb-2">
+            <div
+              key={habit.id}
+              className={`rounded-xl px-3 py-2 shadow-sm ${badge ? 'border' : 'bg-white ring-1 ring-black/5'}`}
+              style={badge ? { backgroundColor: badge.color + '22', borderColor: badge.color } : undefined}
+            >
+              <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
-                <span className="text-xs text-emerald-700 font-medium">+{appConfig.currencySymbol}{habit.dollar_value.toFixed(2)}</span>
+                <div className="flex items-center gap-2">
+                  {badge && <span className="text-xs font-semibold text-gray-500">{badge.emoji} {badge.label} badge</span>}
+                  <span className="text-xs text-emerald-700 font-medium">+{appConfig.currencySymbol}{habit.dollar_value.toFixed(2)}</span>
+                </div>
               </div>
               <div className="flex gap-2">
-                <div className="flex-1 flex flex-col items-center gap-0.5">
-                  <button
-                    onClick={() => answer(habit.id, 'yes')}
-                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'}`}
-                  >
-                    {response === 'yes' ? getCheckinLabel(habit.id, 'yes') : '✅ Yes'}
-                  </button>
-                  <span className="text-xs text-gray-400">🔥 {streaks[habit.id] ?? 0} day streak</span>
-                </div>
-                <div className="flex-1 flex flex-col items-center gap-0.5">
-                  <button
-                    onClick={() => answer(habit.id, 'no')}
-                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${response === 'no' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 active:bg-red-100'}`}
-                  >
-                    {response === 'no' ? getCheckinLabel(habit.id, 'no') : '❌ No'}
-                  </button>
-                  <span className="text-xs text-gray-400">{Math.max(0, habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0))} no{Math.max(0, habit.allowed_no_days_per_week - (weeklyNoCounts[habit.id] ?? 0)) === 1 ? '' : 's'} left this week</span>
-                </div>
-                <div className="flex-1 flex flex-col items-center gap-0.5">
-                  <button
-                    onClick={() => answer(habit.id, 'freeze')}
-                    disabled={freezeUsed && response !== 'freeze'}
-                    className={`w-full py-1.5 rounded-lg text-sm font-semibold transition ${response === 'freeze' ? 'bg-blue-500 text-white' : freezeUsed ? 'bg-gray-100 text-gray-300 cursor-not-allowed' : 'bg-gray-100 text-amber-600 active:bg-blue-100'}`}
-                  >❄️ Freeze</button>
-                  <span className="text-xs text-gray-400">{freezeUsed ? '0 freezes left' : '1 freeze left'}</span>
-                </div>
+                <button
+                  onClick={() => openPopup(habit.id, 'yes')}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'}`}
+                >
+                  {response === 'yes' ? getCheckinLabel(habit.id, 'yes') : '✅ Yes'}
+                </button>
+                <button
+                  onClick={() => openPopup(habit.id, 'no')}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'freeze' ? 'bg-blue-500 text-white' : response === 'no' ? (noWithinAllowance(habit) ? 'bg-orange-500 text-white' : 'bg-red-500 text-white') : 'bg-gray-100 text-gray-600 active:bg-red-100'}`}
+                >
+                  {response === 'freeze' ? '❄️ Frozen' : response === 'no' ? getCheckinLabel(habit.id, 'no') : '❌ No'}
+                </button>
               </div>
             </div>
           )
@@ -394,7 +364,7 @@ export default function CheckInPage() {
           <div className="bg-white ring-1 ring-black/5 rounded-2xl p-5 text-center shadow-sm">
             <div className="text-3xl mb-2">🎉</div>
             <p className="text-emerald-700 font-bold text-base">Check-in complete!</p>
-            <p className="text-gray-500 text-sm mt-1">Balance: <span className="text-emerald-700 font-bold">{appConfig.currencySymbol}{balance.toFixed(2)}</span></p>
+            <p className="text-gray-500 text-sm mt-1">{selectedDate === today ? 'Earned today' : 'Earned this day'}: <span className="text-emerald-700 font-bold">{appConfig.currencySymbol}{balance.toFixed(2)}</span></p>
           </div>
           {newBadges.map((b, i) => (
             <div key={i} className="bg-amber-50 ring-1 ring-amber-200 rounded-2xl p-3 text-center text-sm text-amber-700 font-medium">
@@ -406,61 +376,111 @@ export default function CheckInPage() {
 
       {/* Unified popup */}
       {popupOpen && pendingPopupHabitId && (() => {
+        const habit = habits.find(h => h.id === pendingPopupHabitId)
+        if (!habit) return null
         const config = getPopupConfig(pendingPopupHabitId)
-        if (!config) return null
-        const isNo = config.trigger === 'no'
+        const isNo = pendingResponse === 'no'
+        const showQuestions = !!config && config.trigger === pendingResponse
+        const finalResponse: 'yes' | 'no' | 'freeze' = isNo && popupFreeze ? 'freeze' : pendingResponse
+        const resultStreak = projectStreak(habit, finalResponse)
+        const baseStreak = projectStreak(habit, null)
+        const willBreak = isNo && !popupFreeze && resultStreak < baseStreak
+        const nosLeft = nosLeftThisWeek(habit)
+        const alreadyAnswered = !!checkins[pendingPopupHabitId]
+        const freezeDisabled = freezeUsed && checkins[pendingPopupHabitId] !== 'freeze'
         return (
-          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6">
-            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl max-h-[85vh] overflow-y-auto">
-              <p className="text-base font-bold text-gray-900 mb-5">
-                {isNo ? '❌ Tell us more' : '✅ Log it'}
-              </p>
-              <div className="space-y-5">
-                {config.questions.map((q, i) => (
-                  <div key={i}>
-                    <p className="text-sm font-medium text-gray-700 mb-2">{q.label}{q.type === 'number' && q.unit ? ` (${q.unit})` : ''}</p>
-                    {q.type === 'multi' && (
-                      <div className="grid grid-cols-2 gap-2">
-                        {q.options.map(opt => {
-                          const sel = (popupCurrentAnswers[q.label] as string[] | undefined) ?? []
-                          const active = sel.includes(opt)
-                          return (
-                            <button
-                              key={opt}
-                              onClick={() => setPopupCurrentAnswers(prev => {
-                                const cur = (prev[q.label] as string[]) ?? []
-                                return { ...prev, [q.label]: cur.includes(opt) ? cur.filter(o => o !== opt) : [...cur, opt] }
-                              })}
-                              className={`py-2 px-3 rounded-xl text-sm font-semibold border transition-colors text-center ${active ? (isNo ? 'bg-red-500 text-white border-red-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-gray-50 text-gray-800 border-gray-200'}`}
-                            >
-                              {opt}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {q.type === 'number' && (
-                      <input
-                        type="number"
-                        min="0"
-                        step="any"
-                        placeholder={q.unit ? `e.g. 30` : 'Enter a number'}
-                        value={popupCurrentAnswers[q.label] ?? ''}
-                        onChange={e => setPopupCurrentAnswers(prev => ({ ...prev, [q.label]: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-3 mt-6">
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-6" onClick={closePopup}>
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <p className="text-base font-bold text-gray-900 mb-1">{isNo ? '❌' : '✅'} {habit.name}</p>
+              <p className="text-sm text-gray-400 mb-5">{isNo ? 'You didn’t do it' : 'You did it'}</p>
+
+              {showQuestions && (
+                <div className="space-y-5 mb-5">
+                  {config!.questions.map((q, i) => (
+                    <div key={i}>
+                      <p className="text-sm font-medium text-gray-700 mb-2">{q.label}{q.type === 'number' && q.unit ? ` (${q.unit})` : ''}</p>
+                      {q.type === 'multi' && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {q.options.map(opt => {
+                            const sel = (popupCurrentAnswers[q.label] as string[] | undefined) ?? []
+                            const active = sel.includes(opt)
+                            return (
+                              <button
+                                key={opt}
+                                onClick={() => setPopupCurrentAnswers(prev => {
+                                  const cur = (prev[q.label] as string[]) ?? []
+                                  return { ...prev, [q.label]: cur.includes(opt) ? cur.filter(o => o !== opt) : [...cur, opt] }
+                                })}
+                                className={`py-2 px-3 rounded-xl text-sm font-semibold border transition-colors text-center ${active ? (isNo ? 'bg-red-500 text-white border-red-500' : 'bg-emerald-600 text-white border-emerald-600') : 'bg-gray-50 text-gray-800 border-gray-200'}`}
+                              >
+                                {opt}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {q.type === 'number' && (
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="e.g. 30"
+                          value={popupCurrentAnswers[q.label] ?? ''}
+                          onChange={e => setPopupCurrentAnswers(prev => ({ ...prev, [q.label]: e.target.value }))}
+                          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!isNo && (
+                <p className="text-sm text-gray-600 bg-emerald-50 rounded-xl px-4 py-3 mb-5">🔥 Your streak will be <span className="font-bold text-emerald-700">{resultStreak} day{resultStreak === 1 ? '' : 's'}</span>.</p>
+              )}
+
+              {isNo && (
+                <div className="space-y-3 mb-5">
+                  <p className="text-sm text-gray-600">You have <span className="font-bold text-gray-900">{nosLeft}</span> &ldquo;No&rdquo;{nosLeft === 1 ? '' : 's'} left this week.</p>
+                  {willBreak && (
+                    <p className="text-sm bg-red-50 text-red-700 rounded-xl px-4 py-3">⚠️ This breaks your streak: <span className="font-bold">{baseStreak} day{baseStreak === 1 ? '' : 's'}</span> → <span className="font-bold">{resultStreak}</span>.</p>
+                  )}
+                  <button
+                    onClick={() => { if (!freezeDisabled) setPopupFreeze(f => !f) }}
+                    disabled={freezeDisabled}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border text-sm font-semibold transition-colors ${freezeDisabled ? 'bg-gray-100 text-gray-300 border-gray-200 cursor-not-allowed' : popupFreeze ? 'bg-blue-500 text-white border-blue-500' : 'bg-gray-50 text-gray-700 border-gray-200'}`}
+                  >
+                    <span>❄️ Use a freeze to protect my streak</span>
+                    <span>{freezeDisabled ? 'used this week' : popupFreeze ? 'ON' : 'OFF'}</span>
+                  </button>
+                  {freezeDisabled && (() => {
+                    const usage = freezeUsage()
+                    return (
+                      <p className="text-xs text-gray-400">
+                        {usage ? <>❄️ Freeze used on <span className="font-semibold text-gray-500">{usage.habitName}</span>, {shortDate(usage.date)}.</> : 'This week’s freeze is already marked as used.'}
+                      </p>
+                    )
+                  })()}
+                  {popupFreeze && !freezeDisabled && (
+                    <p className="text-sm text-blue-700">Streak protected — stays at <span className="font-bold">{resultStreak} day{resultStreak === 1 ? '' : 's'}</span>.</p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                {alreadyAnswered && (
+                  <button
+                    onClick={() => clearCheckin(pendingPopupHabitId)}
+                    className="py-3 px-4 rounded-xl bg-gray-100 text-red-500 font-semibold text-sm"
+                  >Clear</button>
+                )}
                 <button
-                  onClick={() => { setPopupOpen(false); setPopupCurrentAnswers({}); setPendingPopupHabitId(null) }}
+                  onClick={closePopup}
                   className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm"
                 >Cancel</button>
                 <button
                   onClick={confirmPopup}
-                  className={`flex-1 py-3 rounded-xl text-white font-semibold text-sm ${isNo ? 'bg-red-500' : 'bg-emerald-700'}`}
+                  className={`flex-1 py-3 rounded-xl text-white font-semibold text-sm ${finalResponse === 'freeze' ? 'bg-blue-500' : isNo ? 'bg-red-500' : 'bg-emerald-700'}`}
                 >Save</button>
               </div>
             </div>

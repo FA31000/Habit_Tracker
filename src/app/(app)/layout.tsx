@@ -4,7 +4,7 @@ import BalanceBadge from '@/components/BalanceBadge'
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col bg-gray-100">
-      <header className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-900 px-5 pb-5 pt-6 text-white max-w-lg mx-auto w-full">
+      <header className="relative overflow-hidden bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-900 px-5 pb-3 pt-4 text-white max-w-lg mx-auto w-full">
         {/* Decorative circles */}
         <div className="pointer-events-none absolute -top-6 -right-6 h-28 w-28 rounded-full bg-white/10" />
         <div className="pointer-events-none absolute top-4 -right-2 h-14 w-14 rounded-full bg-emerald-400/20" />

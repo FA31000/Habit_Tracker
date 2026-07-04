@@ -6,16 +6,40 @@ import { useRouter } from 'next/navigation'
 import { loadAppConfig, DEFAULT_APP_CONFIG, type AppConfig } from '@/lib/types'
 
 export default function SettingsPage() {
-  const [shareToken, setShareToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
   const [notifStatus, setNotifStatus] = useState<'unknown' | 'subscribed' | 'denied' | 'unsupported'>('unknown')
   const [reminderTime, setReminderTime] = useState('21:00')
   const [savingTime, setSavingTime] = useState(false)
   const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState('')
+  const [savingName, setSavingName] = useState(false)
+  const [nameSaved, setNameSaved] = useState(false)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackStatus, setFeedbackStatus] = useState<'idle' | 'sending' | 'sent'>('idle')
   const supabase = createClient()
   const router = useRouter()
+
+  async function sendFeedback() {
+    const message = feedbackText.trim()
+    if (!message) return
+    setFeedbackStatus('sending')
+    let { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      const { data } = await supabase.auth.signInAnonymously()
+      user = data.user
+    }
+    if (!user) { setFeedbackStatus('idle'); return }
+    const { error } = await supabase.from('feedback').insert({
+      user_id: user.id,
+      user_email: user.email ?? null,
+      message,
+    })
+    if (error) { alert('Could not send: ' + error.message); setFeedbackStatus('idle'); return }
+    setFeedbackText('')
+    setFeedbackStatus('sent')
+    setTimeout(() => setFeedbackStatus('idle'), 3000)
+  }
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -31,12 +55,12 @@ export default function SettingsPage() {
     if (!user) return
     setUserEmail(user.email ?? null)
 
-    const [{ data: link }, { data: settings }] = await Promise.all([
-      supabase.from('share_links').select('token').eq('user_id', user.id).single(),
+    const [{ data: profile }, { data: settings }] = await Promise.all([
+      supabase.from('profiles').select('display_name').eq('id', user.id).single(),
       supabase.from('user_settings').select('reminder_time').eq('user_id', user.id).single(),
     ])
 
-    setShareToken(link?.token ?? null)
+    setDisplayName(profile?.display_name ?? '')
     if (settings?.reminder_time) setReminderTime(settings.reminder_time)
 
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -69,37 +93,19 @@ export default function SettingsPage() {
     saveAppConfig({ ...appConfig, [key]: val })
   }
 
-  async function generateLink() {
-    try {
-      let { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        const { data } = await supabase.auth.signInAnonymously()
-        user = data.user
-      }
-      if (!user) { alert('No user session'); return }
-
-      const token = Array.from(crypto.getRandomValues(new Uint8Array(16)))
-        .map(b => b.toString(16).padStart(2, '0')).join('')
-
-      const { data, error } = await supabase
-        .from('share_links')
-        .upsert({ user_id: user.id, token }, { onConflict: 'user_id' })
-        .select('token')
-        .single()
-
-      if (error) { alert('DB error: ' + error.message); return }
-      setShareToken(data?.token ?? token)
-    } catch (e) {
-      alert('Error: ' + String(e))
-    }
-  }
-
-  async function copyLink() {
-    if (!shareToken) return
-    const url = `${window.location.origin}/partner/${shareToken}`
-    await navigator.clipboard.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+  async function saveDisplayName() {
+    const trimmed = displayName.trim()
+    if (!trimmed) return
+    setSavingName(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setSavingName(false); return }
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({ id: user.id, display_name: trimmed }, { onConflict: 'id' })
+    setSavingName(false)
+    if (error) { alert('Could not save name: ' + error.message); return }
+    setNameSaved(true)
+    setTimeout(() => setNameSaved(false), 2000)
   }
 
   async function subscribeNotifications() {
@@ -133,10 +139,6 @@ export default function SettingsPage() {
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
-  const partnerUrl = shareToken
-    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/partner/${shareToken}`
-    : null
-
   return (
     <div className="p-4">
       {/* Account */}
@@ -145,6 +147,25 @@ export default function SettingsPage() {
         <p className="text-sm text-gray-500 mb-4">
           {userEmail ?? 'Anonymous user'}
         </p>
+
+        <label className="text-sm text-gray-500 block mb-1">Your name (shown to friends)</label>
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+            placeholder="Your name"
+            className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <button
+            onClick={saveDisplayName}
+            disabled={savingName || !displayName.trim()}
+            className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold text-sm shadow-sm disabled:opacity-50"
+          >
+            {savingName ? '...' : nameSaved ? '✅' : 'Save'}
+          </button>
+        </div>
+
         <button
           onClick={handleLogout}
           className="w-full py-3 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 font-semibold text-sm transition"
@@ -206,38 +227,6 @@ export default function SettingsPage() {
         ) : null}
       </div>
 
-      {/* Accountability Partner */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-4">
-        <h2 className="font-semibold text-gray-900 mb-1">Accountability Partner</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Share a link with your partner. They can see your streaks and badges, and react with an emoji. No account needed.
-        </p>
-
-        {!shareToken ? (
-          <button
-            onClick={generateLink}
-            className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold shadow-sm"
-          >
-            Generate Share Link
-          </button>
-        ) : (
-          <div className="space-y-3">
-            <div className="bg-gray-100 rounded-xl p-3 text-xs text-gray-600 break-all">
-              {partnerUrl}
-            </div>
-            <button
-              onClick={copyLink}
-              className="w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold shadow-sm"
-            >
-              {copied ? '✅ Copied!' : '📋 Copy Link'}
-            </button>
-            <p className="text-xs text-gray-400 text-center">Send this to your wife via WhatsApp</p>
-          </div>
-        )}
-      </div>
-
-      {shareToken && <ReactionsPanel token={shareToken} />}
-
       {/* Streak Bonuses */}
       <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mt-4">
         <h2 className="font-semibold text-gray-900 mb-1">Streak Bonuses</h2>
@@ -280,43 +269,28 @@ export default function SettingsPage() {
         </button>
       </div>
 
-    </div>
-  )
-}
-
-function ReactionsPanel({ token }: { token: string }) {
-  const [reactions, setReactions] = useState<{ emoji: string; reacted_at: string }[]>([])
-  const supabase = createClient()
-
-  useEffect(() => {
-    async function load() {
-      const { data: link } = await supabase.from('share_links').select('id').eq('token', token).single()
-      if (!link) return
-      const { data } = await supabase.from('reactions').select('emoji, reacted_at').eq('share_link_id', link.id).order('reacted_at', { ascending: false }).limit(10)
-      setReactions(data ?? [])
-    }
-    load()
-  }, [token])
-
-  if (reactions.length === 0) return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 text-center">
-      <p className="text-gray-400 text-sm">No reactions yet from your partner.</p>
-    </div>
-  )
-
-  return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5">
-      <h2 className="font-semibold text-gray-900 mb-3">Reactions from your partner</h2>
-      <div className="space-y-2">
-        {reactions.map((r, i) => (
-          <div key={i} className="flex items-center justify-between">
-            <span className="text-2xl">{r.emoji}</span>
-            <span className="text-xs text-gray-400">
-              {new Date(r.reacted_at).toLocaleDateString('en-SG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-            </span>
-          </div>
-        ))}
+      {/* Send Feedback */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mt-4">
+        <h2 className="font-semibold text-gray-900 mb-1">Send Feedback</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Have an idea, a feature request, or found a bug? Let us know.
+        </p>
+        <textarea
+          value={feedbackText}
+          onChange={e => setFeedbackText(e.target.value)}
+          placeholder="Type your feedback here..."
+          rows={4}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
+        />
+        <button
+          onClick={sendFeedback}
+          disabled={feedbackStatus === 'sending' || !feedbackText.trim()}
+          className="w-full mt-3 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-semibold shadow-sm disabled:opacity-50"
+        >
+          {feedbackStatus === 'sending' ? 'Sending...' : feedbackStatus === 'sent' ? '✅ Thank you!' : 'Send Feedback'}
+        </button>
       </div>
+
     </div>
   )
 }

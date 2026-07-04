@@ -16,7 +16,7 @@ function addDays(dateStr: string, n: number): string {
 }
 
 // Monday that starts the week containing dateStr, as YYYY-MM-DD.
-function getWeekStart(dateStr: string): string {
+export function getWeekStart(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00')
   const day = d.getDay()
   d.setDate(d.getDate() - day + (day === 0 ? -6 : 1))
@@ -26,11 +26,12 @@ function getWeekStart(dateStr: string): string {
   return `${y}-${m}-${dd}`
 }
 
-// A streak is the number of "yes" days in a row, counting backwards.
+// A streak counts every day that is a "yes", an allowed "no", or a "freeze",
+// counting backwards from today.
 // - A "yes" adds 1.
-// - A "freeze" is skipped (it never adds and never breaks; the app only lets
-//   you record a freeze when one is available, so any recorded freeze is valid).
-// - A "no" — or a missed day with no answer — is skipped while you are still
+// - A "freeze" adds 1 (the app only lets you record a freeze when one is
+//   available, so any recorded freeze is valid).
+// - A "no" — or a missed day with no answer — adds 1 while you are still
 //   within this habit's weekly "No" allowance; once you go over, it breaks the streak.
 // - Today, if not yet answered, is skipped (it does not count and does not break).
 // - Nothing before your first ever check-in counts.
@@ -53,12 +54,12 @@ export function computeHabitStreak(
   for (let day = start; day <= today; day = addDays(day, 1)) {
     const r = byDate[day]
     if (r === 'yes') { classes.push('count'); continue }
-    if (r === 'freeze') { classes.push('skip'); continue }
+    if (r === 'freeze') { classes.push('count'); continue }
     if (r === undefined && day === today) { classes.push('skip'); continue }
     const week = getWeekStart(day)
     const used = (noUsedByWeek[week] ?? 0) + 1
     noUsedByWeek[week] = used
-    classes.push(used <= allowedNoPerWeek ? 'skip' : 'break')
+    classes.push(used <= allowedNoPerWeek ? 'count' : 'break')
   }
 
   let longest = 0

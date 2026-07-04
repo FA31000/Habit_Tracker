@@ -2,12 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { Habit } from '@/lib/types'
-
-type MultiQuestion = { type: 'multi'; label: string; options: string[] }
-type NumberQuestion = { type: 'number'; label: string; unit: string }
-type PopupQuestion = MultiQuestion | NumberQuestion
-type HabitPopupConfig = { trigger: 'yes' | 'no'; questions: PopupQuestion[] }
+import type { Habit, PopupQuestion } from '@/lib/types'
 
 type Props = {
   habit: Habit | null
@@ -43,13 +38,10 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
 
   useEffect(() => {
     if (!habit) return
-    const stored = localStorage.getItem('habit_popup_config')
-    const all: Record<string, HabitPopupConfig> = stored ? JSON.parse(stored) : {}
-
-    if (all[habit.id]) {
+    if (habit.question_config) {
       setHasPopup(true)
-      setTrigger(all[habit.id].trigger)
-      setQuestions(all[habit.id].questions)
+      setTrigger(habit.question_config.trigger)
+      setQuestions(habit.question_config.questions)
     } else {
       // Pre-populate defaults for known habit types
       const n = habit.name.toLowerCase()
@@ -114,25 +106,17 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+    const validQuestions = questions.filter(q => q.label.trim())
+    const question_config = hasPopup && validQuestions.length > 0 ? { trigger, questions: validQuestions } : null
     const payload = {
       name: name.trim(),
       description: description.trim() || null,
       dollar_value: parseFloat(dollarValue) || 1,
       allowed_no_days_per_week: parseInt(allowedNoDays) || 0,
+      question_config,
     }
     if (habit) {
       await supabase.from('habits').update(payload).eq('id', habit.id)
-      // Save popup config
-      const stored = localStorage.getItem('habit_popup_config')
-      const all: Record<string, HabitPopupConfig> = stored ? JSON.parse(stored) : {}
-      const validQuestions = questions.filter(q => q.label.trim())
-      if (hasPopup && validQuestions.length > 0) {
-        all[habit.id] = { trigger, questions: validQuestions }
-      } else {
-        delete all[habit.id]
-      }
-      localStorage.setItem('habit_popup_config', JSON.stringify(all))
-      window.dispatchEvent(new StorageEvent('storage', { key: 'habit_popup_config' }))
     } else {
       await supabase.from('habits').insert({ ...payload, user_id: user.id })
     }

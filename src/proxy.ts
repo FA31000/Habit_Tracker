@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Allow public routes
-  if (pathname.startsWith('/partner') || pathname === '/login') {
+  if (pathname === '/login') {
     if (user && pathname === '/login') {
       return NextResponse.redirect(new URL('/', request.url))
     }

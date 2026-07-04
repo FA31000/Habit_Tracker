@@ -3,9 +3,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES, getStreakMultiplier, loadAppConfig } from '@/lib/types'
-import type { Habit } from '@/lib/types'
+import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, todayDate } from '@/lib/streak'
+import { defaultConfigForName } from '@/lib/popupDefaults'
+import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
 type HabitStats = {
@@ -18,27 +20,7 @@ type HabitStats = {
   earnedBadges: number[]
 }
 
-type MultiQuestion = { type: 'multi'; label: string; options: string[] }
-type NumberQuestion = { type: 'number'; label: string; unit: string }
-type PopupQuestion = MultiQuestion | NumberQuestion
-type HabitPopupConfig = { trigger: 'yes' | 'no'; questions: PopupQuestion[] }
 type TimeRange = '7d' | '30d' | 'all'
-
-const DEFAULT_EXERCISE_CONFIG: HabitPopupConfig = {
-  trigger: 'yes',
-  questions: [
-    { type: 'multi', label: 'What did you do?', options: ['Running', 'Swimming', 'Biking', 'Resistance', 'Yoga', 'Other'] },
-    { type: 'number', label: 'Weight', unit: 'kg' },
-  ],
-}
-const DEFAULT_READING_CONFIG: HabitPopupConfig = {
-  trigger: 'yes',
-  questions: [{ type: 'number', label: 'Minutes read', unit: 'min' }],
-}
-const DEFAULT_EATING_CONFIG: HabitPopupConfig = {
-  trigger: 'no',
-  questions: [{ type: 'multi', label: 'Why not?', options: ['Sugar', 'Alcohol', 'Carbs at dinner', 'Other'] }],
-}
 
 function getCutoffDate(range: TimeRange): string | null {
   if (range === 'all') return null
@@ -55,26 +37,10 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<TimeRange>('30d')
 
-  // Popup data from localStorage
-  const [habitPopupConfig, setHabitPopupConfig] = useState<Record<string, HabitPopupConfig>>({})
-  const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, Record<string, string[] | string>>>({})
-  const [legacyReadingMinutes, setLegacyReadingMinutes] = useState<Record<string, number>>({})
-  const [legacyExerciseData, setLegacyExerciseData] = useState<Record<string, { weight?: number; types?: string[] }>>({})
+  // Popup answers from Supabase, keyed habitId_date
+  const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, PopupAnswers>>({})
 
   const supabase = createClient()
-
-  useEffect(() => {
-    const s = localStorage.getItem('habit_popup_config'); if (s) setHabitPopupConfig(JSON.parse(s))
-  }, [])
-  useEffect(() => {
-    const s = localStorage.getItem('habit_popup_answers'); if (s) setHabitPopupAnswers(JSON.parse(s))
-  }, [])
-  useEffect(() => {
-    const s = localStorage.getItem('reading_minutes'); if (s) setLegacyReadingMinutes(JSON.parse(s))
-  }, [])
-  useEffect(() => {
-    const s = localStorage.getItem('exercise_data'); if (s) setLegacyExerciseData(JSON.parse(s))
-  }, [])
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -84,6 +50,10 @@ export default function StatsPage() {
     const { data: allCheckins } = await supabase.from('checkins').select('*').eq('user_id', user.id)
     const { data: badges } = await supabase.from('badges').select('*').eq('user_id', user.id)
     const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
+
+    const ansMap: Record<string, PopupAnswers> = {}
+    ;(allCheckins ?? []).forEach(c => { if (c.answers) ansMap[c.habit_id + '_' + c.date] = c.answers })
+    setHabitPopupAnswers(ansMap)
 
     const badgeMap = new Map<string, number[]>()
     ;(badges ?? []).forEach(b => {
@@ -133,20 +103,20 @@ export default function StatsPage() {
 
   useEffect(() => { load() }, [load])
 
+  // One-time migration of old localStorage popup data into Supabase, then reload.
+  useEffect(() => {
+    migrateLocalDataToSupabase(supabase).then(() => load())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function getPopupConfig(habit: Habit): HabitPopupConfig | null {
-    if (habitPopupConfig[habit.id]) return habitPopupConfig[habit.id]
-    const n = habit.name.toLowerCase()
-    if (n.includes('exercise') || n.includes('workout') || n.includes('gym')) return DEFAULT_EXERCISE_CONFIG
-    if (n.includes('read')) return DEFAULT_READING_CONFIG
-    if (n.includes('eat') || n.includes('healthy')) return DEFAULT_EATING_CONFIG
-    return null
+    return habit.question_config ?? defaultConfigForName(habit.name)
   }
 
   function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {
     const cutoff = getCutoffDate(timeRange)
     const byDate = new Map<string, number>()
 
-    // Primary: habit_popup_answers
     Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
       const idx = key.lastIndexOf('_')
       if (key.substring(0, idx) !== habitId) return
@@ -158,27 +128,6 @@ export default function StatsPage() {
         if (!isNaN(n)) byDate.set(date, n)
       }
     })
-
-    // Legacy fallback
-    const labelLower = q.label.toLowerCase()
-    if (labelLower.includes('weight')) {
-      Object.entries(legacyExerciseData).forEach(([key, data]) => {
-        const idx = key.lastIndexOf('_')
-        if (key.substring(0, idx) !== habitId || data.weight === undefined) return
-        const date = key.substring(idx + 1)
-        if (cutoff && date < cutoff) return
-        if (!byDate.has(date)) byDate.set(date, data.weight!)
-      })
-    }
-    if (labelLower.includes('minute') || labelLower.includes('min')) {
-      Object.entries(legacyReadingMinutes).forEach(([key, mins]) => {
-        const idx = key.lastIndexOf('_')
-        if (key.substring(0, idx) !== habitId) return
-        const date = key.substring(idx + 1)
-        if (cutoff && date < cutoff) return
-        if (!byDate.has(date)) byDate.set(date, mins)
-      })
-    }
 
     return Array.from(byDate.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -201,19 +150,6 @@ export default function StatsPage() {
       const val = ans[q.label]
       if (Array.isArray(val)) val.forEach(opt => { counts[opt] = (counts[opt] ?? 0) + 1 })
     })
-
-    // Legacy fallback for exercise types
-    if (q.label.toLowerCase().includes('do') || q.label.toLowerCase().includes('exercise')) {
-      Object.entries(legacyExerciseData).forEach(([key, data]) => {
-        const idx = key.lastIndexOf('_')
-        if (key.substring(0, idx) !== habitId || !data.types) return
-        const date = key.substring(idx + 1)
-        if (cutoff && date < cutoff) return
-        if (!habitPopupAnswers[key]) {
-          data.types.forEach(t => { counts[t] = (counts[t] ?? 0) + 1 })
-        }
-      })
-    }
 
     return Object.entries(counts)
       .map(([option, count]) => ({ option, count }))
@@ -269,7 +205,7 @@ export default function StatsPage() {
               <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
                 <div className="flex items-start justify-between mb-3">
                   <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
-                  {topBadge && <span className="text-lg" title={topBadge.label}>{topBadge.emoji}</span>}
+                  {topBadge && <span className="text-lg" title={`${topBadge.label} badge`}>{topBadge.emoji}</span>}
                 </div>
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   <div className="text-center">
@@ -290,7 +226,7 @@ export default function StatsPage() {
                     const cfg = BADGE_CONFIG[m]
                     const earned = s.earnedBadges.includes(m)
                     return (
-                      <div key={m} title={`${cfg.label} — ${m} days`}
+                      <div key={m} title={`${m}-day badge`}
                         className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
                         {cfg.emoji}
                       </div>

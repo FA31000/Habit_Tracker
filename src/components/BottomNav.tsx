@@ -2,6 +2,9 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { isAdmin } from '@/lib/admin'
 
 const CheckInIcon = ({ active }: { active: boolean }) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
@@ -32,6 +35,15 @@ const RewardsIcon = ({ active }: { active: boolean }) => (
   </svg>
 )
 
+const FriendsIcon = ({ active }: { active: boolean }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5" />
+    <path d="M16 5.5a3 3 0 0 1 0 5.5" />
+    <path d="M18 14.5c2 .6 3 2.2 3 4.5" />
+  </svg>
+)
+
 const SettingsIcon = ({ active }: { active: boolean }) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="2.5" />
@@ -39,16 +51,36 @@ const SettingsIcon = ({ active }: { active: boolean }) => (
   </svg>
 )
 
-const tabs = [
+const AdminIcon = ({ active }: { active: boolean }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />
+    <path d="M9 12l2 2 4-4" />
+  </svg>
+)
+
+const baseTabs = [
   { href: '/',         Icon: CheckInIcon,  label: 'Check In' },
-  { href: '/habits',   Icon: HabitsIcon,   label: 'Habits'   },
   { href: '/stats',    Icon: StatsIcon,    label: 'Stats'    },
   { href: '/rewards',  Icon: RewardsIcon,  label: 'Rewards'  },
+  { href: '/friends',  Icon: FriendsIcon,  label: 'Friends'  },
+  { href: '/habits',   Icon: HabitsIcon,   label: 'Habits'   },
   { href: '/settings', Icon: SettingsIcon, label: 'Settings' },
 ]
 
+const adminTab = { href: '/admin', Icon: AdminIcon, label: 'Admin' }
+
 export default function BottomNav() {
   const path = usePathname()
+  const [showAdmin, setShowAdmin] = useState(false)
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setShowAdmin(isAdmin(user?.email))
+    })
+  }, [])
+
+  const tabs = showAdmin ? [...baseTabs, adminTab] : baseTabs
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-50 shadow-[0_-1px_12px_rgba(0,0,0,0.06)]">

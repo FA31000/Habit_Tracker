@@ -90,9 +90,6 @@ export default function HabitsPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-sm text-gray-900 leading-snug">{habit.name}</p>
-                  {habit.description && (
-                    <p className="text-xs text-gray-500 mt-0.5 leading-snug">{habit.description}</p>
-                  )}
                 </div>
               </div>
               <div className="flex gap-2 shrink-0">
@@ -116,6 +113,9 @@ export default function HabitsPage() {
                 </button>
               </div>
             </div>
+            {habit.description && (
+              <p className="text-xs text-gray-500 mt-2 leading-snug">{habit.description}</p>
+            )}
           </div>
         ))}
       </div>

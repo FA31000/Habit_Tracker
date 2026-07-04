@@ -1,3 +1,9 @@
+export type MultiQuestion = { type: 'multi'; label: string; options: string[] }
+export type NumberQuestion = { type: 'number'; label: string; unit: string }
+export type PopupQuestion = MultiQuestion | NumberQuestion
+export type HabitPopupConfig = { trigger: 'yes' | 'no'; questions: PopupQuestion[] }
+export type PopupAnswers = Record<string, string[] | string>
+
 export type Habit = {
   id: string
   user_id: string
@@ -7,6 +13,7 @@ export type Habit = {
   is_active: boolean
   allowed_no_days_per_week: number
   created_at: string
+  question_config: HabitPopupConfig | null
 }
 
 export type Checkin = {
@@ -15,6 +22,7 @@ export type Checkin = {
   user_id: string
   date: string
   response: 'yes' | 'no' | 'freeze'
+  answers: PopupAnswers | null
 }
 
 export type Streak = {
@@ -44,15 +52,24 @@ export type WishlistItem = {
   redeemed_at: string | null
 }
 
+export type Feedback = {
+  id: string
+  user_id: string
+  user_email: string | null
+  message: string
+  done: boolean
+  created_at: string
+}
+
 export const BADGE_MILESTONES = [5, 14, 30, 90, 180, 365]
 
 export const BADGE_CONFIG: Record<number, { label: string; color: string; emoji: string }> = {
-  5:   { label: 'Grey',    color: '#9CA3AF', emoji: '⚫' },
-  14:  { label: 'Bronze',  color: '#92400E', emoji: '🟤' },
-  30:  { label: 'Silver',  color: '#9CA3AF', emoji: '⚪' },
-  90:  { label: 'Gold',    color: '#D97706', emoji: '🟡' },
-  180: { label: 'Platinum',color: '#CBD5E1', emoji: '🩶' },
-  365: { label: 'Cup',     color: '#F59E0B', emoji: '🏆' },
+  5:   { label: '5-day',   color: '#9CA3AF', emoji: '⚫' },
+  14:  { label: '14-day',  color: '#92400E', emoji: '🟤' },
+  30:  { label: '30-day',  color: '#9CA3AF', emoji: '⚪' },
+  90:  { label: '90-day',  color: '#D97706', emoji: '🟡' },
+  180: { label: '180-day', color: '#CBD5E1', emoji: '🩶' },
+  365: { label: '365-day', color: '#F59E0B', emoji: '🏆' },
 }
 
 export function getStreakBadge(streak: number): { label: string; color: string; emoji: string } | null {
