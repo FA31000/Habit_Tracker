@@ -330,7 +330,7 @@ export default function CheckInPage() {
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <div className="flex items-center gap-2">
-                  {badge && <span className="text-xs font-semibold text-gray-500">{badge.emoji} {badge.label} badge</span>}
+                  {badge && <span className="text-xs font-semibold text-gray-500">{badge.emoji} {badge.label}</span>}
                   <span className="text-xs text-emerald-700 font-medium">+{appConfig.currencySymbol}{habit.dollar_value.toFixed(2)}</span>
                 </div>
               </div>

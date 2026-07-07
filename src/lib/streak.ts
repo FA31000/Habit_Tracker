@@ -6,7 +6,7 @@ export function todayDate(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
 }
 
-function addDays(dateStr: string, n: number): string {
+export function addDays(dateStr: string, n: number): string {
   const d = new Date(dateStr + 'T00:00:00')
   d.setDate(d.getDate() + n)
   const y = d.getFullYear()

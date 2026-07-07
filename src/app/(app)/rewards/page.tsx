@@ -3,8 +3,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { WishlistItem } from '@/lib/types'
-import { getStreakMultiplier, loadAppConfig } from '@/lib/types'
-import { computeHabitStreak, todayDate } from '@/lib/streak'
+import { loadAppConfig } from '@/lib/types'
+import { addDays, todayDate } from '@/lib/streak'
+import { totalEarned, dayEarnings, type CheckinsByHabit } from '@/lib/balance'
+import RewardForecast from '@/components/RewardForecast'
 
 const ORDER_KEY = 'rewards_order'
 
@@ -20,6 +22,9 @@ function applyOrder(items: WishlistItem[], order: string[]): WishlistItem[] {
 export default function RewardsPage() {
   const [items, setItems] = useState<WishlistItem[]>([])
   const [balance, setBalance] = useState(0)
+  const [ratePerDay, setRatePerDay] = useState(0)
+  const [today, setToday] = useState('')
+  const [history, setHistory] = useState<{ date: string; value: number }[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [newName, setNewName] = useState('')
@@ -38,24 +43,56 @@ export default function RewardsPage() {
 
     const { data: wishlist } = await supabase.from('wishlist_items').select('*').eq('user_id', user.id).order('redeemed', { ascending: true }).order('price', { ascending: true })
     const { data: checkins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
-    const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id)
+    const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
 
     const cfg = loadAppConfig()
     const today = todayDate()
-    const habitMap = new Map((habits ?? []).map(h => [h.id, h.dollar_value]))
-    const checkinsByHabit = new Map<string, { date: string; response: 'yes' | 'no' | 'freeze' }[]>()
+    const checkinsByHabit: CheckinsByHabit = {}
     ;(checkins ?? []).forEach(c => {
-      if (!checkinsByHabit.has(c.habit_id)) checkinsByHabit.set(c.habit_id, [])
-      checkinsByHabit.get(c.habit_id)!.push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' })
+      if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = []
+      checkinsByHabit[c.habit_id].push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' })
     })
-    const streakMap = new Map((habits ?? []).map(h => [h.id, computeHabitStreak(checkinsByHabit.get(h.id) ?? [], h.allowed_no_days_per_week, today).current]))
-    let earned = 0
-    ;(checkins ?? []).filter(c => c.response === 'yes').forEach(c => {
-      const dv = habitMap.get(c.habit_id) ?? 0
-      const streak = streakMap.get(c.habit_id) ?? 0
-      earned += dv * getStreakMultiplier(streak, cfg)
-    })
+    const earned = totalEarned(habits ?? [], checkinsByHabit, cfg)
     const spent = (wishlist ?? []).filter(i => i.redeemed).reduce((s, i) => s + i.price, 0)
+
+    // Run rate: average earnings per day over the last 14 full days (today
+    // excluded, days before the first ever check-in excluded).
+    const firstDate = (checkins ?? []).map(c => c.date).sort()[0]
+    let rateSum = 0
+    let rateDays = 0
+    if (firstDate) {
+      for (let i = 1; i <= 14; i++) {
+        const d = addDays(today, -i)
+        if (d < firstDate) break
+        rateSum += dayEarnings(d, habits ?? [], checkinsByHabit, cfg)
+        rateDays++
+      }
+    }
+    setRatePerDay(rateDays > 0 ? rateSum / rateDays : 0)
+    setToday(today)
+
+    // Balance at the end of each of the past 4 weeks plus today, for the
+    // "past" bars of the forecast chart.
+    const allDates = Array.from(new Set((checkins ?? []).map(c => c.date))).sort()
+    const earningsByDate = new Map(allDates.map(dt => [dt, dayEarnings(dt, habits ?? [], checkinsByHabit, cfg)]))
+    const spentByDate = (wishlist ?? [])
+      .filter(i => i.redeemed && i.redeemed_at)
+      .map(i => ({ date: new Date(i.redeemed_at!).toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' }), price: i.price }))
+    const balanceAt = (d: string) => {
+      let e = 0
+      for (const dt of allDates) {
+        if (dt > d) break
+        e += earningsByDate.get(dt)!
+      }
+      const s = spentByDate.filter(x => x.date <= d).reduce((sum, x) => sum + x.price, 0)
+      return Math.max(0, e - s)
+    }
+    const hist: { date: string; value: number }[] = []
+    for (let w = 4; w >= 0; w--) {
+      const d = addDays(today, -7 * w)
+      hist.push({ date: d, value: balanceAt(d) })
+    }
+    setHistory(hist)
 
     const savedOrder: string[] = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')
     setItems(applyOrder(wishlist ?? [], savedOrder))
@@ -146,12 +183,7 @@ export default function RewardsPage() {
         </button>
       </div>
 
-      {/* Balance */}
-      <div className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5 mb-2 text-center">
-        <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">Your balance</p>
-        <p className="text-3xl font-extrabold text-emerald-700">S${Math.round(balance)}</p>
-        <p className="text-xs text-gray-400">Earned from keeping your habits</p>
-      </div>
+      <RewardForecast balance={balance} ratePerDay={ratePerDay} items={available} today={today} history={history} />
 
       {available.length === 0 && (
         <p className="text-gray-400 text-center mt-8 text-sm">No rewards yet. Add something to save up for!</p>

@@ -85,7 +85,7 @@ A streak counts every day that is a **"Yes"**, an **allowed "No"**, or a **"Free
 This is computed live from check-in history (the single source of truth) by `computeHabitStreak` in `src/lib/streak.ts`, used everywhere a streak appears: home page, Stats, Rewards/balance multiplier, Partner view, and badges. Saving a check-in recomputes the per-habit `streaks` table (current + longest) from full history so the Partner view stays accurate.
 
 ### 5. Badges (AA-style)
-Per habit, earned at streak milestones. The **colored dot/emoji** is the visual, but in **text** each badge is named by its **number of days** (never the colour name, since colours aren't self-explanatory) — e.g. "5-day badge", "30-day badge":
+Per habit, earned at streak milestones. The **colored dot/emoji** is the visual, but in **text** each badge is named by its **number of days** (never the colour name, since colours aren't self-explanatory) — e.g. "5-day badge", "30-day badge". On the check-in (home) page the label is shortened to just the days (e.g. "⚫ 5-day") so it fits on one line:
 - ⚫ 5-day streak
 - 🟤 14-day streak
 - ⚪ 30-day streak
@@ -101,7 +101,7 @@ Badges displayed on a profile/trophy page per habit.
 - Per habit: current streak, longest streak, total days kept, success rate (%)
 - Overall: total dollar balance earned, total check-in days, best streak across all habits
 - **Time range switcher** (7 days / 30 days / All time) — controls all popup data visualizations below each habit card
-- **Popup data visualizations** per habit (shown below each habit's streak card, only if data exists):
+- **Popup data visualizations** per habit (inside the same white card as the habit's streak stats, only if data exists). Hidden by default: a small down-arrow at the bottom of the habit card (shown only when extra stats exist) expands them; clicking again collapses them. The arrow flips upside down when expanded and stays at the bottom of the card.
   - **Number questions** (e.g. Weight, Minutes read): line graph over selected time range + summary stats (avg, total, entries)
   - **Multi-choice questions** (e.g. What did you do?, Why not?): horizontal bar chart showing frequency of each option over selected time range
   - Data read from `checkins.answers` in Supabase (old localStorage data is moved into Supabase by the one-time migration in `src/lib/migrate.ts`)
@@ -113,6 +113,12 @@ Badges displayed on a profile/trophy page per habit.
 - Mark as "Redeemed" — deducts price from dollar balance
 - Up/down arrow buttons on each reward to reorder; order persisted in localStorage
 - History of redeemed items
+- **Forecast card** (`src/components/RewardForecast.tsx`), at the top of the Rewards page (the separate "Your balance" card was removed — the top green badge already shows the amount):
+  - Run rate = average money earned per day over the last 14 full days (today excluded, days before the first check-in excluded), using the shared `dayEarnings` from `src/lib/balance.ts`
+  - Weekly bar chart (recharts): one bar per week — the past 4 weeks plus today show the **actual** balance at that date (dark green), the next 8 weeks show the **projected** balance at the run rate (light green). Each bar has its dollar amount on top; there is no y-axis. A small Past / Projected legend sits under the chart.
+  - Under the chart, each reward lists its estimated date: "Ready now", "~15 Aug (39 days)", or "Over a year away" (more than 365 days out)
+  - If there is no run rate yet (no full days of history), the card shows a message instead of a chart
+- The Rewards page balance now uses the shared `totalEarned` from `src/lib/balance.ts` (active habits only), so it matches the top green badge exactly — previously it used its own older calculation that missed the perfect-day doubling
 
 ### 8. Friends
 Replaces the old Accountability Partner share-link. Everyone who takes part has their own account.

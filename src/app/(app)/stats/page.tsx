@@ -36,6 +36,7 @@ export default function StatsPage() {
   const [bestStreak, setBestStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<TimeRange>('30d')
+  const [expandedHabits, setExpandedHabits] = useState<Record<string, boolean>>({})
 
   // Popup answers from Supabase, keyed habitId_date
   const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, PopupAnswers>>({})
@@ -198,6 +199,12 @@ export default function StatsPage() {
         {stats.map(s => {
           const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
           const popupConfig = getPopupConfig(s.habit)
+          const hasExtraStats = (popupConfig?.questions ?? []).some(q => {
+            if (q.type === 'number') return getNumberData(s.habit.id, q).length > 0
+            if (q.type === 'multi') return getMultiData(s.habit.id, q).length > 0
+            return false
+          })
+          const isExpanded = expandedHabits[s.habit.id] ?? false
 
           return (
             <div key={s.habit.id}>
@@ -233,86 +240,99 @@ export default function StatsPage() {
                     )
                   })}
                 </div>
-              </div>
-
-              {/* Popup data visualizations */}
-              {popupConfig && popupConfig.questions.map((q, qi) => {
-                if (q.type === 'number') {
-                  const data = getNumberData(s.habit.id, q)
-                  if (data.length === 0) return null
-                  const values = data.map(d => d.value)
-                  const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
-                  const total = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10
-                  const vMin = Math.floor(Math.min(...values) * 0.95)
-                  const vMax = Math.ceil(Math.max(...values) * 1.05)
-                  const showLine = data.length > 1
-                  return (
-                    <div key={qi} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
-                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">
-                        {q.label}{q.unit ? ` (${q.unit})` : ''}
-                      </p>
-                      <div className="grid grid-cols-3 gap-2 mb-3">
-                        <div className="text-center">
-                          <p className="text-gray-900 font-bold">{avg}{q.unit ? ` ${q.unit}` : ''}</p>
-                          <p className="text-xs text-gray-400">Avg</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-gray-900 font-bold">{total}{q.unit ? ` ${q.unit}` : ''}</p>
-                          <p className="text-xs text-gray-400">Total</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-gray-900 font-bold">{data.length}</p>
-                          <p className="text-xs text-gray-400">Entries</p>
-                        </div>
-                      </div>
-                      {showLine && (
-                        <ResponsiveContainer width="100%" height={110}>
-                          <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-                            <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
-                            <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} domain={[vMin, vMax]} allowDecimals />
-                            <Tooltip
-                              contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
-                              labelStyle={{ color: '#6b7280' }}
-                              itemStyle={{ color: '#047857' }}
-                              formatter={(v) => [`${v}${q.unit ? ' ' + q.unit : ''}`, '']}
-                            />
-                            <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={<Dot r={3} fill="#047857" />} activeDot={{ r: 5 }} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      )}
-                    </div>
-                  )
-                }
-
-                if (q.type === 'multi') {
-                  const data = getMultiData(s.habit.id, q)
-                  if (data.length === 0) return null
-                  const maxCount = Math.max(...data.map(d => d.count))
-                  return (
-                    <div key={qi} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5 mt-2">
-                      <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">{q.label}</p>
-                      <div className="space-y-2">
-                        {data.map(({ option, count }) => (
-                          <div key={option} className="flex items-center gap-2">
-                            <span className="text-xs text-gray-600 w-28 flex-shrink-0 text-right truncate">{option}</span>
-                            <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
-                              <div
-                                className="bg-emerald-600 h-5 rounded-full transition-all"
-                                style={{ width: `${(count / maxCount) * 100}%` }}
-                              />
-                            </div>
-                            <span className="text-xs font-semibold text-gray-700 w-4 text-right">{count}</span>
+                {/* Popup data visualizations (inside the same card, hidden until expanded) */}
+                {isExpanded && popupConfig && popupConfig.questions.map((q, qi) => {
+                  if (q.type === 'number') {
+                    const data = getNumberData(s.habit.id, q)
+                    if (data.length === 0) return null
+                    const values = data.map(d => d.value)
+                    const avg = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 10) / 10
+                    const total = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10
+                    const vMin = Math.floor(Math.min(...values) * 0.95)
+                    const vMax = Math.ceil(Math.max(...values) * 1.05)
+                    const showLine = data.length > 1
+                    return (
+                      <div key={qi} className="mt-4">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">
+                          {q.label}{q.unit ? ` (${q.unit})` : ''}
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          <div className="text-center">
+                            <p className="text-gray-900 font-bold">{avg}{q.unit ? ` ${q.unit}` : ''}</p>
+                            <p className="text-xs text-gray-400">Avg</p>
                           </div>
-                        ))}
+                          <div className="text-center">
+                            <p className="text-gray-900 font-bold">{total}{q.unit ? ` ${q.unit}` : ''}</p>
+                            <p className="text-xs text-gray-400">Total</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-gray-900 font-bold">{data.length}</p>
+                            <p className="text-xs text-gray-400">Entries</p>
+                          </div>
+                        </div>
+                        {showLine && (
+                          <ResponsiveContainer width="100%" height={110}>
+                            <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                              <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} />
+                              <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} axisLine={false} tickLine={false} domain={[vMin, vMax]} allowDecimals />
+                              <Tooltip
+                                contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                                labelStyle={{ color: '#6b7280' }}
+                                itemStyle={{ color: '#047857' }}
+                                formatter={(v) => [`${v}${q.unit ? ' ' + q.unit : ''}`, '']}
+                              />
+                              <Line type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} dot={<Dot r={3} fill="#047857" />} activeDot={{ r: 5 }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        )}
                       </div>
-                      <p className="text-xs text-gray-400 mt-2 text-right">{RANGE_LABELS[timeRange]}</p>
-                    </div>
-                  )
-                }
+                    )
+                  }
 
-                return null
-              })}
+                  if (q.type === 'multi') {
+                    const data = getMultiData(s.habit.id, q)
+                    if (data.length === 0) return null
+                    const maxCount = Math.max(...data.map(d => d.count))
+                    return (
+                      <div key={qi} className="mt-4">
+                        <p className="text-xs text-gray-400 uppercase tracking-wide mb-3 font-medium">{q.label}</p>
+                        <div className="space-y-2">
+                          {data.map(({ option, count }) => (
+                            <div key={option} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-600 w-28 flex-shrink-0 text-right truncate">{option}</span>
+                              <div className="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden">
+                                <div
+                                  className="bg-emerald-600 h-5 rounded-full transition-all"
+                                  style={{ width: `${(count / maxCount) * 100}%` }}
+                                />
+                              </div>
+                              <span className="text-xs font-semibold text-gray-700 w-4 text-right">{count}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2 text-right">{RANGE_LABELS[timeRange]}</p>
+                      </div>
+                    )
+                  }
+
+                  return null
+                })}
+                {hasExtraStats && (
+                  <button
+                    onClick={() => setExpandedHabits(prev => ({ ...prev, [s.habit.id]: !isExpanded }))}
+                    className="w-full flex justify-center pt-2 -mb-1 text-gray-400"
+                    aria-label={isExpanded ? 'Hide extra stats' : 'Show extra stats'}
+                  >
+                    <svg
+                      className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}
