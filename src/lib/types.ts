@@ -61,10 +61,10 @@ export type Feedback = {
   created_at: string
 }
 
-export const BADGE_MILESTONES = [5, 14, 30, 90, 180, 365]
+export const BADGE_MILESTONES = [7, 14, 30, 90, 180, 365]
 
 export const BADGE_CONFIG: Record<number, { label: string; color: string; emoji: string }> = {
-  5:   { label: '5-day',   color: '#9CA3AF', emoji: '⚫' },
+  7:   { label: '7-day',   color: '#9CA3AF', emoji: '⚫' },
   14:  { label: '14-day',  color: '#92400E', emoji: '🟤' },
   30:  { label: '30-day',  color: '#9CA3AF', emoji: '⚪' },
   90:  { label: '90-day',  color: '#D97706', emoji: '🟡' },
@@ -79,23 +79,21 @@ export function getStreakBadge(streak: number): { label: string; color: string; 
 }
 
 export type AppConfig = {
-  streakTier1Days: number
-  streakTier1Multiplier: number
-  streakTier2Days: number
-  streakTier2Multiplier: number
-  streakTier3Days: number
-  streakTier3Multiplier: number
+  badgeMultipliers: Record<number, number>
   currencySymbol: string
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  streakTier1Days: 7,
-  streakTier1Multiplier: 1.5,
-  streakTier2Days: 30,
-  streakTier2Multiplier: 2,
-  streakTier3Days: 365,
-  streakTier3Multiplier: 3,
+  badgeMultipliers: { 7: 1.5, 14: 1.75, 30: 2, 90: 2.5, 180: 3, 365: 4 },
   currencySymbol: 'S$',
+}
+
+export function normalizeAppConfig(raw: unknown): AppConfig {
+  const parsed = (raw ?? {}) as Partial<AppConfig>
+  return {
+    badgeMultipliers: { ...DEFAULT_APP_CONFIG.badgeMultipliers, ...(parsed.badgeMultipliers ?? {}) },
+    currencySymbol: parsed.currencySymbol ?? DEFAULT_APP_CONFIG.currencySymbol,
+  }
 }
 
 export function loadAppConfig(): AppConfig {
@@ -103,14 +101,15 @@ export function loadAppConfig(): AppConfig {
   try {
     const stored = localStorage.getItem('app_config')
     if (!stored) return DEFAULT_APP_CONFIG
-    return { ...DEFAULT_APP_CONFIG, ...JSON.parse(stored) }
+    return normalizeAppConfig(JSON.parse(stored))
   } catch { return DEFAULT_APP_CONFIG }
 }
 
 export function getStreakMultiplier(streak: number, config?: AppConfig): number {
   const c = config ?? DEFAULT_APP_CONFIG
-  if (streak >= c.streakTier3Days) return c.streakTier3Multiplier
-  if (streak >= c.streakTier2Days) return c.streakTier2Multiplier
-  if (streak >= c.streakTier1Days) return c.streakTier1Multiplier
+  for (let i = BADGE_MILESTONES.length - 1; i >= 0; i--) {
+    const m = BADGE_MILESTONES[i]
+    if (streak >= m) return c.badgeMultipliers[m] ?? 1
+  }
   return 1
 }

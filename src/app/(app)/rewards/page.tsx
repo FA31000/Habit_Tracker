@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { WishlistItem } from '@/lib/types'
-import { loadAppConfig } from '@/lib/types'
+import { fetchAppConfig } from '@/lib/appConfig'
 import { addDays, todayDate } from '@/lib/streak'
 import { totalEarned, dayEarnings, type CheckinsByHabit } from '@/lib/balance'
 import RewardForecast from '@/components/RewardForecast'
@@ -45,7 +45,7 @@ export default function RewardsPage() {
     const { data: checkins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
     const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
 
-    const cfg = loadAppConfig()
+    const cfg = await fetchAppConfig()
     const today = todayDate()
     const checkinsByHabit: CheckinsByHabit = {}
     ;(checkins ?? []).forEach(c => {

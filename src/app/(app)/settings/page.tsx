@@ -3,14 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { loadAppConfig, DEFAULT_APP_CONFIG, type AppConfig } from '@/lib/types'
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [notifStatus, setNotifStatus] = useState<'unknown' | 'subscribed' | 'denied' | 'unsupported'>('unknown')
   const [reminderTime, setReminderTime] = useState('21:00')
   const [savingTime, setSavingTime] = useState(false)
-  const [appConfig, setAppConfig] = useState<AppConfig>(DEFAULT_APP_CONFIG)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [savingName, setSavingName] = useState(false)
@@ -77,21 +75,6 @@ export default function SettingsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  useEffect(() => { setAppConfig(loadAppConfig()) }, [])
-
-  function saveAppConfig(updated: AppConfig) {
-    setAppConfig(updated)
-    localStorage.setItem('app_config', JSON.stringify(updated))
-    // notify other tabs
-    window.dispatchEvent(new StorageEvent('storage', { key: 'app_config' }))
-  }
-
-  function updateConfig<K extends keyof AppConfig>(key: K, raw: string) {
-    const val = key === 'currencySymbol' ? raw : parseFloat(raw)
-    if (key !== 'currencySymbol' && isNaN(val as number)) return
-    saveAppConfig({ ...appConfig, [key]: val })
-  }
 
   async function saveDisplayName() {
     const trimmed = displayName.trim()
@@ -225,48 +208,6 @@ export default function SettingsPage() {
             🔔 Enable Notifications
           </button>
         ) : null}
-      </div>
-
-      {/* Streak Bonuses */}
-      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mt-4">
-        <h2 className="font-semibold text-gray-900 mb-1">Streak Bonuses</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          Earn more points the longer your streak. Set the multiplier for each tier.
-        </p>
-        <div className="space-y-3">
-          {([
-            { daysKey: 'streakTier1Days' as const, multKey: 'streakTier1Multiplier' as const },
-            { daysKey: 'streakTier2Days' as const, multKey: 'streakTier2Multiplier' as const },
-            { daysKey: 'streakTier3Days' as const, multKey: 'streakTier3Multiplier' as const },
-          ]).map(tier => (
-            <div key={tier.multKey} className="flex items-center gap-2">
-              <span className="text-sm text-gray-600 shrink-0">After</span>
-              <input
-                type="number"
-                min="1"
-                value={appConfig[tier.daysKey]}
-                onChange={e => updateConfig(tier.daysKey, e.target.value)}
-                className="w-14 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              <span className="text-sm text-gray-600 shrink-0">days</span>
-              <input
-                type="number"
-                min="1"
-                step="0.1"
-                value={appConfig[tier.multKey]}
-                onChange={e => updateConfig(tier.multKey, e.target.value)}
-                className="w-14 ml-auto border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              <span className="text-sm text-gray-600 shrink-0">×</span>
-            </div>
-          ))}
-        </div>
-        <button
-          onClick={() => saveAppConfig({ ...appConfig, streakTier1Days: 7, streakTier1Multiplier: 1.5, streakTier2Days: 30, streakTier2Multiplier: 2, streakTier3Days: 365, streakTier3Multiplier: 3 })}
-          className="mt-4 text-xs text-gray-400 underline"
-        >
-          Reset to defaults
-        </button>
       </div>
 
       {/* Send Feedback */}

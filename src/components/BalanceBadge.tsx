@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { loadAppConfig } from '@/lib/types'
+import { fetchAppConfig } from '@/lib/appConfig'
 import { totalEarned, type CheckinsByHabit } from '@/lib/balance'
 
 export default function BalanceBadge() {
@@ -10,13 +10,12 @@ export default function BalanceBadge() {
   const [symbol, setSymbol] = useState('S$')
 
   useEffect(() => {
-    const cfg = loadAppConfig()
-    setSymbol(cfg.currencySymbol ?? 'S$')
-
     async function fetchBalance() {
       const supabase = createClient()
       let { data: { user } } = await supabase.auth.getUser()
       if (!user) return
+      const cfg = await fetchAppConfig()
+      setSymbol(cfg.currencySymbol ?? 'S$')
 
       const { data: habitsData } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
       const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)

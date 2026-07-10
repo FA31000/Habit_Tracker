@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types'
-import { BADGE_MILESTONES, getStreakBadge, loadAppConfig, type AppConfig } from '@/lib/types'
+import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, loadAppConfig, type AppConfig } from '@/lib/types'
+import { fetchAppConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
 import { dayEarnings } from '@/lib/balance'
@@ -93,7 +94,7 @@ export default function CheckInPage() {
     })
     setHabitCheckinLists(lists)
 
-    const cfg = loadAppConfig()
+    const cfg = await fetchAppConfig()
     const activeHabits = habitsData ?? []
 
     setStreaks(computedStreaks)
@@ -218,14 +219,14 @@ export default function CheckInPage() {
 
     if (response === 'freeze' && prev !== 'freeze') {
       if (freezeUsed) return
-      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: true })
+      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: true }, { onConflict: 'user_id,week_start' })
       setFreezeUsed(true)
     } else if (response !== 'freeze' && prev === 'freeze') {
-      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
+      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false }, { onConflict: 'user_id,week_start' })
       setFreezeUsed(false)
     }
 
-    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: selectedDate, response, answers })
+    await supabase.from('checkins').upsert({ habit_id: habitId, user_id: user.id, date: selectedDate, response, answers }, { onConflict: 'habit_id,date' })
     setCheckins(p => ({ ...p, [habitId]: response }))
     setSavedPopupAnswers(p => ({ ...p, [key]: answers }))
     setDone(false)
@@ -238,7 +239,7 @@ export default function CheckInPage() {
     const prev = checkins[habitId]
     await supabase.from('checkins').delete().eq('habit_id', habitId).eq('user_id', user.id).eq('date', selectedDate)
     if (prev === 'freeze') {
-      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false })
+      await supabase.from('freeze_tokens').upsert({ user_id: user.id, week_start: weekStart, used: false }, { onConflict: 'user_id,week_start' })
       setFreezeUsed(false)
     }
     setCheckins(p => { const next = { ...p }; delete next[habitId]; return next })
@@ -320,7 +321,8 @@ export default function CheckInPage() {
       <div className="space-y-1.5">
         {habits.map(habit => {
           const response = checkins[habit.id]
-          const badge = getStreakBadge(streaks[habit.id] ?? 0)
+          const streak = streaks[habit.id] ?? 0
+          const badge = getStreakBadge(streak)
           return (
             <div
               key={habit.id}
@@ -330,8 +332,8 @@ export default function CheckInPage() {
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <div className="flex items-center gap-2">
-                  {badge && <span className="text-xs font-semibold text-gray-500">{badge.emoji} {badge.label}</span>}
-                  <span className="text-xs text-emerald-700 font-medium">+{appConfig.currencySymbol}{habit.dollar_value.toFixed(2)}</span>
+                  <span className="text-xs font-medium text-gray-500">{streak} {streak === 1 ? 'day' : 'days'}</span>
+                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{(habit.dollar_value * getStreakMultiplier(streak, appConfig)).toFixed(2)}</span>
                 </div>
               </div>
               <div className="flex gap-2">

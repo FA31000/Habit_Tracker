@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { BADGE_CONFIG, BADGE_MILESTONES, getStreakMultiplier, loadAppConfig } from '@/lib/types'
+import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, todayDate } from '@/lib/streak'
@@ -31,9 +31,6 @@ function getCutoffDate(range: TimeRange): string | null {
 
 export default function StatsPage() {
   const [stats, setStats] = useState<HabitStats[]>([])
-  const [totalBalance, setTotalBalance] = useState(0)
-  const [totalDaysCheckedIn, setTotalDaysCheckedIn] = useState(0)
-  const [bestStreak, setBestStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const [timeRange, setTimeRange] = useState<TimeRange>('30d')
   const [expandedHabits, setExpandedHabits] = useState<Record<string, boolean>>({})
@@ -50,7 +47,6 @@ export default function StatsPage() {
     const { data: habits } = await supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
     const { data: allCheckins } = await supabase.from('checkins').select('*').eq('user_id', user.id)
     const { data: badges } = await supabase.from('badges').select('*').eq('user_id', user.id)
-    const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
     const ansMap: Record<string, PopupAnswers> = {}
     ;(allCheckins ?? []).forEach(c => { if (c.answers) ansMap[c.habit_id + '_' + c.date] = c.answers })
@@ -81,24 +77,7 @@ export default function StatsPage() {
       }
     })
 
-    const cfg = loadAppConfig()
-    const yesCheckins = (allCheckins ?? []).filter(c => c.response === 'yes')
-    const habitMap = new Map((habits ?? []).map(h => [h.id, h.dollar_value]))
-    const streaksByHabit = new Map(habitStats.map(s => [s.habit.id, s.currentStreak]))
-    let earned = 0
-    yesCheckins.forEach(c => {
-      const dv = habitMap.get(c.habit_id) ?? 0
-      const s = streaksByHabit.get(c.habit_id) ?? 0
-      earned += dv * getStreakMultiplier(s, cfg)
-    })
-    const spent = (redeemed ?? []).reduce((s, r) => s + r.price, 0)
-    const uniqueDays = new Set((allCheckins ?? []).map(c => c.date)).size
-    const best = Math.max(0, ...habitStats.map(s => s.longestStreak))
-
     setStats(habitStats)
-    setTotalBalance(Math.max(0, earned - spent))
-    setTotalDaysCheckedIn(uniqueDays)
-    setBestStreak(best)
     setLoading(false)
   }, [])
 
@@ -163,19 +142,16 @@ export default function StatsPage() {
 
   return (
     <div className="p-4">
-      {/* Overall stats */}
-      <div className="grid grid-cols-3 gap-3 mb-4 mt-2">
-        <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
-          <p className="text-emerald-700 font-extrabold text-lg">S${totalBalance.toFixed(2)}</p>
-          <p className="text-xs text-gray-500 mt-0.5">Balance</p>
-        </div>
-        <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
-          <p className="text-emerald-700 font-extrabold text-lg">{totalDaysCheckedIn}</p>
-          <p className="text-xs text-gray-500 mt-0.5">Days done</p>
-        </div>
-        <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 text-center">
-          <p className="text-emerald-700 font-extrabold text-lg">{bestStreak}</p>
-          <p className="text-xs text-gray-500 mt-0.5">Best streak</p>
+      {/* Badge legend */}
+      <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5 mb-4 mt-2">
+        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">Badges</p>
+        <div className="grid grid-cols-6 gap-1">
+          {BADGE_MILESTONES.map(m => (
+            <div key={m} className="text-center">
+              <p className="text-base">{BADGE_CONFIG[m].emoji}</p>
+              <p className="text-[10px] text-gray-500 mt-0.5">{m} days</p>
+            </div>
+          ))}
         </div>
       </div>
 
