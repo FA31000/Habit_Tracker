@@ -149,6 +149,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 - Security: Supabase RLS lets any logged-in user insert their own feedback, but only the admin email can read, update, or delete feedback.
 - **Streak Bonuses card** (top of the Admin page): one points-multiplier input per badge milestone (7, 14, 30, 90, 180, 365 days) plus a "Reset to defaults" button. Every change saves immediately ("Saving... / Saved ✓" indicator). Applies to **all users** — moved here from the per-device Settings page.
 - **Shared app config**: stored in the Supabase `app_config` table (single row, `config` jsonb holding `badgeMultipliers` and `currencySymbol`; created by `supabase-appconfig.sql`). RLS: any signed-in user can read, only the admin email can insert/update. Pages fetch it via `fetchAppConfig()` in `src/lib/appConfig.ts`, which also caches the result in localStorage (`app_config`) as an offline fallback and fires a `storage` event so open pages refresh instantly.
+- **Per-account streak bonus override**: an optional per-user override of the badge multipliers, stored in the Supabase `user_bonus_config` table (`user_id`, `badge_multipliers` jsonb; created by `supabase-user-bonus.sql`). RLS: each user can read only their own row; rows are set by the admin via SQL. The money calculation uses `fetchUserConfig()` in `src/lib/appConfig.ts`, which starts from the shared config and layers the current user's override on top if a row exists — accounts with no row keep the shared/default bonus unchanged. Used by the home page, Rewards page, and the top `BalanceBadge` (the Admin page still uses `fetchAppConfig()` to edit the shared config). The perfect-day double is unaffected. Currently only one account uses this: Hadrien (`hadrienchenleonard@gmail.com`), given a gentle ladder capped at 1.45x (`7→1.15, 14→1.25, 30→1.35, 90→1.45, 180→1.45, 365→1.45`) so a flawless week tops out near S$20.
 - This page is intended to hold more admin tools in the future, not just feedback.
 
 ---
@@ -170,6 +171,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 - `public_habits` (view) — id, user_id, name, is_active, created_at, question_config, allowed_no_days_per_week (safe columns only, readable by all signed-in users)
 - `public_checkins` (view) — id, habit_id, user_id, date, response, answers (readable by all signed-in users, so friends see the same stats)
 - `feedback` — id, user_id, user_email, message, done (boolean), created_at
+- `user_bonus_config` — user_id (= auth user id), badge_multipliers (jsonb), created_at (optional per-account override of the streak-bonus ladder; created by `supabase-user-bonus.sql`)
 - *(removed: `share_links`, `reactions` — old Accountability Partner feature)*
 
 ---
@@ -237,6 +239,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 
 ## History Log
 
+- **2026-07-27** — Repriced Hadrien's account (`hadrienchenleonard@gmail.com`) so a perfect week tops out near S$20 instead of ~S$90. Two parts: (1) lowered his 10 habit dollar values (homework-unprompted S$0.20 down to pencil-case S$0.02, same relative weights as before); (2) added a per-account streak-bonus override (new `user_bonus_config` table + `fetchUserConfig()`) giving him a gentle ladder capped at 1.45x, while keeping the perfect-day double. All other accounts are untouched (no override row → default bonus). His all-time balance re-prices from S$203.93 to ~S$19.83. New files: `supabase-user-bonus.sql`; changed: `src/lib/appConfig.ts`, `src/app/(app)/page.tsx`, `src/app/(app)/rewards/page.tsx`, `src/components/BalanceBadge.tsx`.
 - **2026-07-11** — Home page habit cards: the dollar value is now coloured by the day's answer — green for Yes (earned), red for No or Frozen (not earned), gray while unanswered. Changed in `src/app/(app)/page.tsx`.
 - **2026-07-10 (late)** — Perfect-day items in the Friends feed now have thumbs-up and comments, exactly like badge items (one thumb per person, tap to undo; comments up to 280 chars, delete your own; not on your own perfect day). New Supabase tables `perfect_day_thumbs` and `perfect_day_comments` (`supabase-perfect-day-reactions.sql`). The thumbs/comments UI in `src/app/(app)/friends/page.tsx` was unified so badges and perfect days share the same code.
 - **2026-07-10 23:59** — Home page habit cards: the dollar value now shows the amount **after** the streak multiplier (e.g. a S$1.00 habit on a 14-day streak with a 1.75× multiplier shows +S$1.75), so the card matches what a "Yes" actually pays. Changed in `src/app/(app)/page.tsx`.

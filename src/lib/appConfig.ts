@@ -18,6 +18,33 @@ export async function fetchAppConfig(): Promise<AppConfig> {
   }
 }
 
+// Reads the config for the CURRENT signed-in user: the shared config, with a
+// per-account bonus override (from user_bonus_config) layered on top if one
+// exists. Accounts with no override row just get the shared config unchanged.
+export async function fetchUserConfig(): Promise<AppConfig> {
+  const base = await fetchAppConfig()
+  try {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return base
+    const { data } = await supabase
+      .from('user_bonus_config')
+      .select('badge_multipliers')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (!data?.badge_multipliers) return base
+    const merged = normalizeAppConfig({
+      badgeMultipliers: { ...base.badgeMultipliers, ...data.badge_multipliers },
+      currencySymbol: base.currencySymbol,
+    })
+    localStorage.setItem('app_config', JSON.stringify(merged))
+    window.dispatchEvent(new StorageEvent('storage', { key: 'app_config' }))
+    return merged
+  } catch {
+    return base
+  }
+}
+
 // Saves the shared app config to Supabase. Only the admin passes RLS.
 // Returns an error message, or null on success.
 export async function saveAppConfig(cfg: AppConfig): Promise<string | null> {

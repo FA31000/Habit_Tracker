@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, loadAppConfig, type AppConfig } from '@/lib/types'
-import { fetchAppConfig } from '@/lib/appConfig'
+import { fetchUserConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
 import { dayEarnings } from '@/lib/balance'
@@ -94,7 +94,8 @@ export default function CheckInPage() {
     })
     setHabitCheckinLists(lists)
 
-    const cfg = await fetchAppConfig()
+    const cfg = await fetchUserConfig()
+    setAppConfig(cfg)
     const activeHabits = habitsData ?? []
 
     setStreaks(computedStreaks)
