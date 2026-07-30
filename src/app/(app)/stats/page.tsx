@@ -6,7 +6,6 @@ import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, todayDate } from '@/lib/streak'
-import { defaultConfigForName } from '@/lib/popupDefaults'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
@@ -90,7 +89,7 @@ export default function StatsPage() {
   }, [])
 
   function getPopupConfig(habit: Habit): HabitPopupConfig | null {
-    return habit.question_config ?? defaultConfigForName(habit.name)
+    return habit.question_config
   }
 
   function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {

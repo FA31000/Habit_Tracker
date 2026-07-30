@@ -6,7 +6,6 @@ import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { computeHabitStreak, todayDate } from '@/lib/streak'
-import { defaultConfigForName } from '@/lib/popupDefaults'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
 type HabitStats = {
@@ -86,7 +85,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
   useEffect(() => { load() }, [load])
 
   function getPopupConfig(habit: Habit): HabitPopupConfig | null {
-    return habit.question_config ?? defaultConfigForName(habit.name)
+    return habit.question_config
   }
 
   function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {

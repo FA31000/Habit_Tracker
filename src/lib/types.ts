@@ -81,11 +81,13 @@ export function getStreakBadge(streak: number): { label: string; color: string; 
 export type AppConfig = {
   badgeMultipliers: Record<number, number>
   currencySymbol: string
+  weeklyNoFreezeBonus: number
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   badgeMultipliers: { 7: 1.5, 14: 1.75, 30: 2, 90: 2.5, 180: 3, 365: 4 },
   currencySymbol: 'S$',
+  weeklyNoFreezeBonus: 10,
 }
 
 export function normalizeAppConfig(raw: unknown): AppConfig {
@@ -93,6 +95,7 @@ export function normalizeAppConfig(raw: unknown): AppConfig {
   return {
     badgeMultipliers: { ...DEFAULT_APP_CONFIG.badgeMultipliers, ...(parsed.badgeMultipliers ?? {}) },
     currencySymbol: parsed.currencySymbol ?? DEFAULT_APP_CONFIG.currencySymbol,
+    weeklyNoFreezeBonus: parsed.weeklyNoFreezeBonus ?? DEFAULT_APP_CONFIG.weeklyNoFreezeBonus,
   }
 }
 

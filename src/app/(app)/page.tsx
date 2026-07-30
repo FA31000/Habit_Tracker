@@ -8,7 +8,6 @@ import { fetchUserConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
 import { dayEarnings } from '@/lib/balance'
-import { defaultConfigForName } from '@/lib/popupDefaults'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import Confetti from '@/components/Confetti'
 
@@ -39,8 +38,8 @@ export default function CheckInPage() {
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
   const [showConfetti, setShowConfetti] = useState(false)
+  const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
-  const [weeklyNoCounts, setWeeklyNoCounts] = useState<Record<string, number>>({})
   const [selectedDate, setSelectedDate] = useState(todayDate)
   const [streaks, setStreaks] = useState<Record<string, number>>({})
   const [habitCheckinLists, setHabitCheckinLists] = useState<Record<string, StreakCheckin[]>>({})
@@ -66,17 +65,19 @@ export default function CheckInPage() {
     }
     if (!user) return
 
-    const { data: habitsData } = await supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true })
-    const { data: checkinsData } = await supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate)
-    const { data: freezeData } = await supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single()
-    const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
-
-    const weekEndDate = new Date(weekStart)
-    weekEndDate.setDate(weekEndDate.getDate() + 6)
-    const { data: weekNoData } = await supabase.from('checkins').select('habit_id').eq('user_id', user.id).eq('response', 'no').gte('date', weekStart).lte('date', weekEndDate.toISOString().split('T')[0])
-    const noCounts: Record<string, number> = {}
-    ;(weekNoData ?? []).forEach((c: { habit_id: string }) => { noCounts[c.habit_id] = (noCounts[c.habit_id] ?? 0) + 1 })
-    setWeeklyNoCounts(noCounts)
+    const [
+      { data: habitsData },
+      { data: checkinsData },
+      { data: freezeData },
+      { data: allCheckins },
+      cfg,
+    ] = await Promise.all([
+      supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true }),
+      supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate),
+      supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single(),
+      supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
+      fetchUserConfig(),
+    ])
 
     const checkinsByHabit: Record<string, Record<string, string>> = {}
     ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
@@ -94,7 +95,6 @@ export default function CheckInPage() {
     })
     setHabitCheckinLists(lists)
 
-    const cfg = await fetchUserConfig()
     setAppConfig(cfg)
     const activeHabits = habitsData ?? []
 
@@ -118,7 +118,7 @@ export default function CheckInPage() {
 
   // One-time migration of old localStorage popup data into Supabase, then reload.
   useEffect(() => {
-    migrateLocalDataToSupabase(supabase).then(() => load())
+    migrateLocalDataToSupabase(supabase).then(changed => { if (changed) load() })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -133,7 +133,7 @@ export default function CheckInPage() {
   function getPopupConfig(habitId: string): HabitPopupConfig | null {
     const habit = habits.find(h => h.id === habitId)
     if (!habit) return null
-    return habit.question_config ?? defaultConfigForName(habit.name)
+    return habit.question_config
   }
 
   function getCheckinLabel(habitId: string, response: 'yes' | 'no'): string {
@@ -281,6 +281,8 @@ export default function CheckInPage() {
     } else {
       await supabase.from('perfect_days').delete().eq('user_id', user.id).eq('date', selectedDate)
     }
+    const isSunday = new Date(selectedDate + 'T00:00:00').getDay() === 0
+    setShowFreezeBonus(isSunday && !freezeUsed)
     setNewBadges(earned)
     setSaving(false)
     setDone(true)
@@ -348,7 +350,9 @@ export default function CheckInPage() {
                   onClick={() => openPopup(habit.id, 'no')}
                   className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'freeze' ? 'bg-blue-500 text-white' : response === 'no' ? (noWithinAllowance(habit) ? 'bg-orange-500 text-white' : 'bg-red-500 text-white') : 'bg-gray-100 text-gray-600 active:bg-red-100'}`}
                 >
-                  {response === 'freeze' ? '❄️ Frozen' : response === 'no' ? getCheckinLabel(habit.id, 'no') : '❌ No'}
+                  {response === 'freeze' ? '❄️ Frozen' : response === 'no' ? getCheckinLabel(habit.id, 'no') : response === 'yes' ? '❌ No' : (
+                    <>❌ No <span className="ml-1 inline-flex items-center justify-center min-w-[1.15rem] h-[1.15rem] px-1 rounded-full bg-gray-300 text-gray-700 text-[11px] font-bold align-middle">{nosLeftThisWeek(habit)}</span></>
+                  )}
                 </button>
               </div>
             </div>
@@ -369,6 +373,11 @@ export default function CheckInPage() {
             <p className="text-emerald-700 font-bold text-base">Check-in complete!</p>
             <p className="text-gray-500 text-sm mt-1">{selectedDate === today ? 'Earned today' : 'Earned this day'}: <span className="text-emerald-700 font-bold">{appConfig.currencySymbol}{balance.toFixed(2)}</span></p>
           </div>
+          {showFreezeBonus && (
+            <div className="bg-sky-50 ring-1 ring-sky-200 rounded-2xl p-4 text-center text-sm text-sky-700 font-medium">
+              ❄️ No freeze used this week — you earned a <span className="font-bold">{appConfig.currencySymbol}{appConfig.weeklyNoFreezeBonus.toFixed(2)}</span> bonus!
+            </div>
+          )}
           {newBadges.map((b, i) => (
             <div key={i} className="bg-amber-50 ring-1 ring-amber-200 rounded-2xl p-3 text-center text-sm text-amber-700 font-medium">
               🏅 New badge: {b}

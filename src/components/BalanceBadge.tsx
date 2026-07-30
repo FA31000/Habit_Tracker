@@ -14,12 +14,18 @@ export default function BalanceBadge() {
       const supabase = createClient()
       let { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const cfg = await fetchUserConfig()
+      const [
+        cfg,
+        { data: habitsData },
+        { data: allCheckins },
+        { data: redeemed },
+      ] = await Promise.all([
+        fetchUserConfig(),
+        supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true),
+        supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
+        supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true),
+      ])
       setSymbol(cfg.currencySymbol ?? 'S$')
-
-      const { data: habitsData } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
-      const { data: allCheckins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
-      const { data: redeemed } = await supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true)
 
       const checkinsByHabit: CheckinsByHabit = {}
       ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {

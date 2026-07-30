@@ -10,17 +10,6 @@ type Props = {
   onSaved: () => void
 }
 
-const DEFAULT_EXERCISE_QUESTIONS: PopupQuestion[] = [
-  { type: 'multi', label: 'What did you do?', options: ['Running', 'Swimming', 'Biking', 'Resistance', 'Yoga', 'Other'] },
-  { type: 'number', label: 'Weight', unit: 'kg' },
-]
-const DEFAULT_READING_QUESTIONS: PopupQuestion[] = [
-  { type: 'number', label: 'Minutes read', unit: 'min' },
-]
-const DEFAULT_EATING_QUESTIONS: PopupQuestion[] = [
-  { type: 'multi', label: 'Why not?', options: ['Sugar', 'Alcohol', 'Carbs at dinner', 'Other'] },
-]
-
 export default function HabitForm({ habit, onClose, onSaved }: Props) {
   const [name, setName] = useState(habit?.name ?? '')
   const [description, setDescription] = useState(habit?.description ?? '')
@@ -42,16 +31,6 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
       setHasPopup(true)
       setTrigger(habit.question_config.trigger)
       setQuestions(habit.question_config.questions)
-    } else {
-      // Pre-populate defaults for known habit types
-      const n = habit.name.toLowerCase()
-      if (n.includes('exercise') || n.includes('workout') || n.includes('gym')) {
-        setHasPopup(true); setTrigger('yes'); setQuestions(DEFAULT_EXERCISE_QUESTIONS)
-      } else if (n.includes('eat') || n.includes('healthy')) {
-        setHasPopup(true); setTrigger('no'); setQuestions(DEFAULT_EATING_QUESTIONS)
-      } else if (n.includes('read')) {
-        setHasPopup(true); setTrigger('yes'); setQuestions(DEFAULT_READING_QUESTIONS)
-      }
     }
   }, [habit?.id])
 

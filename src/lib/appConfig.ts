@@ -36,6 +36,7 @@ export async function fetchUserConfig(): Promise<AppConfig> {
     const merged = normalizeAppConfig({
       badgeMultipliers: { ...base.badgeMultipliers, ...data.badge_multipliers },
       currencySymbol: base.currencySymbol,
+      weeklyNoFreezeBonus: base.weeklyNoFreezeBonus,
     })
     localStorage.setItem('app_config', JSON.stringify(merged))
     window.dispatchEvent(new StorageEvent('storage', { key: 'app_config' }))

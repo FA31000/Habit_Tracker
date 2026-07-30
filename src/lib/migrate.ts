@@ -1,6 +1,5 @@
 import type { HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import type { createClient } from '@/lib/supabase/client'
-import { defaultConfigForName } from '@/lib/popupDefaults'
 
 type SupabaseClient = ReturnType<typeof createClient>
 
@@ -11,12 +10,14 @@ const MIGRATION_FLAG = 'migrated_to_supabase_v1'
 // - habit_popup_answers -> checkins.answers
 // - reading_minutes / exercise_data (legacy) -> checkins.answers
 // Runs once per browser; safe to call on every page load (guarded by a flag).
-export async function migrateLocalDataToSupabase(supabase: SupabaseClient): Promise<void> {
-  if (typeof window === 'undefined') return
-  if (localStorage.getItem(MIGRATION_FLAG)) return
+// Returns true only when it actually migrated something, so callers can skip a
+// reload on the common no-op path.
+export async function migrateLocalDataToSupabase(supabase: SupabaseClient): Promise<boolean> {
+  if (typeof window === 'undefined') return false
+  if (localStorage.getItem(MIGRATION_FLAG)) return false
 
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
+  if (!user) return false
 
   const parse = <T,>(key: string): T => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : ({} as T) }
@@ -30,13 +31,15 @@ export async function migrateLocalDataToSupabase(supabase: SupabaseClient): Prom
   const { data: habits } = await supabase.from('habits').select('id, name, question_config').eq('user_id', user.id)
 
   // Migrate question config into the habits table (only where not already set).
+  let changed = false
   const resolved: Record<string, HabitPopupConfig | null> = {}
   for (const h of habits ?? []) {
     if (h.question_config) { resolved[h.id] = h.question_config; continue }
-    const local = config[h.id] ?? defaultConfigForName(h.name)
+    const local = config[h.id] ?? null
     resolved[h.id] = local
     if (config[h.id]) {
       await supabase.from('habits').update({ question_config: config[h.id] }).eq('id', h.id)
+      changed = true
     }
   }
 
@@ -72,8 +75,10 @@ export async function migrateLocalDataToSupabase(supabase: SupabaseClient): Prom
 
     if (built) {
       await supabase.from('checkins').update({ answers: built }).eq('id', c.id)
+      changed = true
     }
   }
 
   localStorage.setItem(MIGRATION_FLAG, '1')
+  return changed
 }

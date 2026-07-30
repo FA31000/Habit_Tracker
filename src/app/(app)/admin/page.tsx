@@ -41,6 +41,13 @@ export default function AdminPage() {
     persistConfig({ ...config, badgeMultipliers: { ...config.badgeMultipliers, [milestone]: val } })
   }
 
+  function setFreezeBonus(raw: string) {
+    if (!config) return
+    const val = parseFloat(raw)
+    if (isNaN(val)) return
+    persistConfig({ ...config, weeklyNoFreezeBonus: val })
+  }
+
   useEffect(() => { load() }, [load])
 
   async function toggleDone(item: Feedback) {
@@ -97,6 +104,34 @@ export default function AdminPage() {
               Reset to defaults
             </button>
           </>
+        )}
+      </div>
+
+      {/* Weekly no-freeze bonus */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm ring-1 ring-black/5 mb-4">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-semibold text-gray-900">Weekly No-Freeze Bonus</h2>
+          {configStatus === 'saving' && <span className="text-xs text-gray-400">Saving...</span>}
+          {configStatus === 'saved' && <span className="text-xs text-emerald-600">Saved ✓</span>}
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Paid for each finished week where no freeze was used. Applies to everyone.
+        </p>
+        {config === null ? (
+          <p className="text-sm text-gray-400">Loading...</p>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600 shrink-0">Bonus per week</span>
+            <span className="text-sm text-gray-600 shrink-0 ml-auto">{config.currencySymbol}</span>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={config.weeklyNoFreezeBonus}
+              onChange={e => setFreezeBonus(e.target.value)}
+              className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 text-center focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
         )}
       </div>
 
