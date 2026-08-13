@@ -2,8 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { WishlistItem, Credit, CreditKind } from '@/lib/types'
-import { CREDIT_KINDS } from '@/lib/types'
+import type { WishlistItem, Credit } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
 import { addDays, todayDate } from '@/lib/streak'
 import { totalEarned, dayEarnings, creditsTotal, availableBalance, type CheckinsByHabit } from '@/lib/balance'
@@ -15,6 +14,27 @@ const ORDER_KEY = 'rewards_order'
 // remounts during client-side navigation, so it has to be told when money moves.
 function notifyBalanceChanged() {
   window.dispatchEvent(new StorageEvent('storage', { key: 'balance' }))
+}
+
+// Shown at the top of the add modal so one "+ Add" button covers both kinds.
+// Hidden when editing — an existing reward can't turn into a credit.
+function AddTypeToggle({ type, onChange }: { type: 'reward' | 'credit'; onChange: (t: 'reward' | 'credit') => void }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 mb-5">
+      {(['reward', 'credit'] as const).map(t => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => onChange(t)}
+          className={`py-2 rounded-xl text-sm font-semibold capitalize ${
+            type === t ? 'bg-emerald-700 text-white' : 'bg-gray-100 text-gray-600'
+          }`}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function applyOrder(items: WishlistItem[], order: string[]): WishlistItem[] {
@@ -34,7 +54,7 @@ export default function RewardsPage() {
   const [creditTotal, setCreditTotal] = useState(0)
   const [spentTotal, setSpentTotal] = useState(0)
   const [showCredits, setShowCredits] = useState(true)
-  const [creditForm, setCreditForm] = useState<{ id: string | null; description: string; amount: string; date: string; kind: CreditKind } | null>(null)
+  const [creditForm, setCreditForm] = useState<{ id: string | null; description: string; amount: string; date: string } | null>(null)
   const [ratePerDay, setRatePerDay] = useState(0)
   const [today, setToday] = useState('')
   const [history, setHistory] = useState<{ date: string; value: number }[]>([])
@@ -161,8 +181,8 @@ export default function RewardsPage() {
 
   function openCredit(credit?: Credit) {
     setCreditForm(credit
-      ? { id: credit.id, description: credit.description, amount: String(credit.amount), date: credit.date, kind: credit.kind }
-      : { id: null, description: '', amount: '', date: todayDate(), kind: 'sold' })
+      ? { id: credit.id, description: credit.description, amount: String(credit.amount), date: credit.date }
+      : { id: null, description: '', amount: '', date: todayDate() })
   }
 
   async function saveCredit(e: React.FormEvent) {
@@ -175,7 +195,6 @@ export default function RewardsPage() {
       description: creditForm.description.trim(),
       amount: parseFloat(creditForm.amount),
       date: creditForm.date,
-      kind: creditForm.kind,
     }
     if (creditForm.id) {
       await supabase.from('credits').update(values).eq('id', creditForm.id)
@@ -325,20 +344,12 @@ export default function RewardsPage() {
 
       {/* Credits ledger */}
       <div className="mt-8">
-        <div className="flex items-center justify-between mb-3">
-          <button onClick={() => setShowCredits(v => !v)} className="flex items-center gap-2">
-            <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
-              Credits · S${Math.round(creditsTotal(credits))}
-            </p>
-            <span className="text-gray-300 text-xs">{showCredits ? '▲' : '▼'}</span>
-          </button>
-          <button
-            onClick={() => openCredit()}
-            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold shadow-sm"
-          >
-            + Add
-          </button>
-        </div>
+        <button onClick={() => setShowCredits(v => !v)} className="w-full flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+            Credits · S${Math.round(creditsTotal(credits))}
+          </p>
+          <span className="text-gray-300 text-xs">{showCredits ? '▲' : '▼'}</span>
+        </button>
         {showCredits && (
           <div className="space-y-2">
             {credits.map(credit => (
@@ -346,7 +357,7 @@ export default function RewardsPage() {
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900 truncate">{credit.description}</p>
                   <p className="text-xs text-gray-400">
-                    {CREDIT_KINDS.find(k => k.value === credit.kind)?.label ?? 'Other'} · {new Date(credit.date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    {new Date(credit.date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -367,7 +378,10 @@ export default function RewardsPage() {
       {creditForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setCreditForm(null)}>
           <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-24 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-900 mb-5">{creditForm.id ? 'Edit Credit' : 'Add Credit'}</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-5">{creditForm.id ? 'Edit Credit' : 'Add'}</h2>
+            {!creditForm.id && (
+              <AddTypeToggle type="credit" onChange={t => { if (t === 'reward') { setCreditForm(null); openItem() } }} />
+            )}
             <form onSubmit={saveCredit} className="space-y-4">
               <input
                 type="text"
@@ -394,20 +408,6 @@ export default function RewardsPage() {
                 required
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
-              <div className="grid grid-cols-4 gap-2">
-                {CREDIT_KINDS.map(k => (
-                  <button
-                    key={k.value}
-                    type="button"
-                    onClick={() => setCreditForm({ ...creditForm, kind: k.value })}
-                    className={`py-2 rounded-xl text-sm font-medium ${
-                      creditForm.kind === k.value ? 'bg-emerald-700 text-white' : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {k.label}
-                  </button>
-                ))}
-              </div>
               <div className="flex gap-3 pt-2">
                 <button type="button" onClick={() => setCreditForm(null)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold disabled:opacity-50">
@@ -423,7 +423,10 @@ export default function RewardsPage() {
       {itemForm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setItemForm(null)}>
           <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-24 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-900 mb-5">{itemForm.id ? 'Edit Reward' : 'Add Reward'}</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-5">{itemForm.id ? 'Edit Reward' : 'Add'}</h2>
+            {!itemForm.id && (
+              <AddTypeToggle type="reward" onChange={t => { if (t === 'credit') { setItemForm(null); openCredit() } }} />
+            )}
             <form onSubmit={saveItem} className="space-y-4">
               <input
                 type="text"
