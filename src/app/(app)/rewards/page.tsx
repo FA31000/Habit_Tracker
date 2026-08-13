@@ -2,13 +2,20 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import type { WishlistItem } from '@/lib/types'
+import type { WishlistItem, Credit, CreditKind } from '@/lib/types'
+import { CREDIT_KINDS } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
 import { addDays, todayDate } from '@/lib/streak'
-import { totalEarned, dayEarnings, type CheckinsByHabit } from '@/lib/balance'
+import { totalEarned, dayEarnings, creditsTotal, availableBalance, type CheckinsByHabit } from '@/lib/balance'
 import RewardForecast from '@/components/RewardForecast'
 
 const ORDER_KEY = 'rewards_order'
+
+// Tells the header BalanceBadge to refetch. It lives in the layout and never
+// remounts during client-side navigation, so it has to be told when money moves.
+function notifyBalanceChanged() {
+  window.dispatchEvent(new StorageEvent('storage', { key: 'balance' }))
+}
 
 function applyOrder(items: WishlistItem[], order: string[]): WishlistItem[] {
   if (!order.length) return items
@@ -21,20 +28,19 @@ function applyOrder(items: WishlistItem[], order: string[]): WishlistItem[] {
 
 export default function RewardsPage() {
   const [items, setItems] = useState<WishlistItem[]>([])
+  const [credits, setCredits] = useState<Credit[]>([])
   const [balance, setBalance] = useState(0)
+  const [earnedTotal, setEarnedTotal] = useState(0)
+  const [creditTotal, setCreditTotal] = useState(0)
+  const [spentTotal, setSpentTotal] = useState(0)
+  const [showCredits, setShowCredits] = useState(true)
+  const [creditForm, setCreditForm] = useState<{ id: string | null; description: string; amount: string; date: string; kind: CreditKind } | null>(null)
   const [ratePerDay, setRatePerDay] = useState(0)
   const [today, setToday] = useState('')
   const [history, setHistory] = useState<{ date: string; value: number }[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAdd, setShowAdd] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newPrice, setNewPrice] = useState('')
-  const [newUrl, setNewUrl] = useState('')
   const [saving, setSaving] = useState(false)
-  const [editItem, setEditItem] = useState<WishlistItem | null>(null)
-  const [editName, setEditName] = useState('')
-  const [editPrice, setEditPrice] = useState('')
-  const [editUrl, setEditUrl] = useState('')
+  const [itemForm, setItemForm] = useState<{ id: string | null; name: string; price: string; url: string } | null>(null)
   const supabase = createClient()
 
   const load = useCallback(async () => {
@@ -44,6 +50,7 @@ export default function RewardsPage() {
     const { data: wishlist } = await supabase.from('wishlist_items').select('*').eq('user_id', user.id).order('redeemed', { ascending: true }).order('price', { ascending: true })
     const { data: checkins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
     const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
+    const { data: creditRows } = await supabase.from('credits').select('*').eq('user_id', user.id).order('date', { ascending: false })
 
     const cfg = await fetchUserConfig()
     const today = todayDate()
@@ -54,6 +61,8 @@ export default function RewardsPage() {
     })
     const earned = totalEarned(habits ?? [], checkinsByHabit, cfg)
     const spent = (wishlist ?? []).filter(i => i.redeemed).reduce((s, i) => s + i.price, 0)
+    const creditList = (creditRows ?? []) as Credit[]
+    const credit = creditsTotal(creditList)
 
     // Run rate: average earnings per day over the last 14 full days (today
     // excluded, days before the first ever check-in excluded).
@@ -85,7 +94,7 @@ export default function RewardsPage() {
         e += earningsByDate.get(dt)!
       }
       const s = spentByDate.filter(x => x.date <= d).reduce((sum, x) => sum + x.price, 0)
-      return Math.max(0, e - s)
+      return Math.max(0, e + creditsTotal(creditList, d) - s)
     }
     const hist: { date: string; value: number }[] = []
     for (let w = 4; w >= 0; w--) {
@@ -96,7 +105,11 @@ export default function RewardsPage() {
 
     const savedOrder: string[] = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')
     setItems(applyOrder(wishlist ?? [], savedOrder))
-    setBalance(Math.max(0, earned - spent))
+    setCredits(creditList)
+    setBalance(availableBalance(earned, credit, spent))
+    setEarnedTotal(earned)
+    setCreditTotal(credit)
+    setSpentTotal(spent)
     setLoading(false)
   }, [])
 
@@ -107,51 +120,79 @@ export default function RewardsPage() {
     if (!confirm(`Redeem "${item.name}" for S$${item.price.toFixed(2)}?`)) return
     await supabase.from('wishlist_items').update({ redeemed: true, redeemed_at: new Date().toISOString() }).eq('id', item.id)
     await load()
+    notifyBalanceChanged()
   }
 
-  async function addItem(e: React.FormEvent) {
+  function openItem(item?: WishlistItem) {
+    setItemForm(item
+      ? { id: item.id, name: item.name, price: String(item.price), url: item.url ?? '' }
+      : { id: null, name: '', price: '', url: '' })
+  }
+
+  async function saveItem(e: React.FormEvent) {
     e.preventDefault()
+    if (!itemForm) return
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('wishlist_items').insert({ user_id: user.id, name: newName.trim(), price: parseFloat(newPrice), url: newUrl.trim() || null })
-    setNewName('')
-    setNewPrice('')
-    setNewUrl('')
-    setShowAdd(false)
+    const values = {
+      name: itemForm.name.trim(),
+      price: parseFloat(itemForm.price),
+      url: itemForm.url.trim() || null,
+    }
+    if (itemForm.id) {
+      await supabase.from('wishlist_items').update(values).eq('id', itemForm.id)
+    } else {
+      await supabase.from('wishlist_items').insert({ user_id: user.id, ...values })
+    }
+    setItemForm(null)
     setSaving(false)
     await load()
-  }
-
-  function openEdit(item: WishlistItem) {
-    setEditItem(item)
-    setEditName(item.name)
-    setEditPrice(String(item.price))
-    setEditUrl(item.url ?? '')
-  }
-
-  async function saveEdit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!editItem) return
-    setSaving(true)
-    await supabase.from('wishlist_items').update({
-      name: editName.trim(),
-      price: parseFloat(editPrice),
-      url: editUrl.trim() || null,
-    }).eq('id', editItem.id)
-    setEditItem(null)
-    setSaving(false)
-    await load()
+    notifyBalanceChanged()
   }
 
   async function deleteItem(id: string) {
-    if (!confirm('Remove this item?')) return
+    if (!confirm('Remove this reward?')) return
     await supabase.from('wishlist_items').delete().eq('id', id)
-    setItems(prev => {
-      const next = prev.filter(i => i.id !== id)
-      localStorage.setItem(ORDER_KEY, JSON.stringify(next.map(i => i.id)))
-      return next
-    })
+    localStorage.setItem(ORDER_KEY, JSON.stringify(items.filter(i => i.id !== id).map(i => i.id)))
+    await load()
+    notifyBalanceChanged()
+  }
+
+  function openCredit(credit?: Credit) {
+    setCreditForm(credit
+      ? { id: credit.id, description: credit.description, amount: String(credit.amount), date: credit.date, kind: credit.kind }
+      : { id: null, description: '', amount: '', date: todayDate(), kind: 'sold' })
+  }
+
+  async function saveCredit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!creditForm) return
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const values = {
+      description: creditForm.description.trim(),
+      amount: parseFloat(creditForm.amount),
+      date: creditForm.date,
+      kind: creditForm.kind,
+    }
+    if (creditForm.id) {
+      await supabase.from('credits').update(values).eq('id', creditForm.id)
+    } else {
+      await supabase.from('credits').insert({ user_id: user.id, ...values })
+    }
+    setCreditForm(null)
+    setSaving(false)
+    await load()
+    notifyBalanceChanged()
+  }
+
+  async function deleteCredit(id: string) {
+    if (!confirm('Remove this credit?')) return
+    await supabase.from('credits').delete().eq('id', id)
+    await load()
+    notifyBalanceChanged()
   }
 
   function moveItem(index: number, direction: -1 | 1) {
@@ -176,11 +217,30 @@ export default function RewardsPage() {
       <div className="flex items-center justify-between mb-2 mt-1">
         <p className="text-sm text-gray-500">Save up for something great</p>
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => openItem()}
           className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold shadow-sm"
         >
           + Add
         </button>
+      </div>
+
+      <div className="flex items-center justify-between bg-white rounded-xl px-3 py-2 shadow-sm ring-1 ring-black/5 mb-2">
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Earned</p>
+          <p className="text-sm font-semibold text-gray-700">S${Math.round(earnedTotal)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Credit</p>
+          <p className="text-sm font-semibold text-gray-700">S${Math.round(creditTotal)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Spent</p>
+          <p className="text-sm font-semibold text-gray-400">−S${Math.round(spentTotal)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide">Balance</p>
+          <p className="text-base font-extrabold text-emerald-700">S${Math.round(balance)}</p>
+        </div>
       </div>
 
       <RewardForecast balance={balance} ratePerDay={ratePerDay} items={available} today={today} history={history} />
@@ -222,7 +282,7 @@ export default function RewardsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 mt-1">
-                  <button onClick={() => openEdit(item)} className="text-xs text-gray-400">✏️</button>
+                  <button onClick={() => openItem(item)} className="text-xs text-gray-400">✏️</button>
                   <button onClick={() => deleteItem(item.id)} className="text-xs text-red-400">✕</button>
                 </div>
               </div>
@@ -263,17 +323,57 @@ export default function RewardsPage() {
         </div>
       )}
 
-      {/* Add modal */}
-      {showAdd && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setShowAdd(false)}>
+      {/* Credits ledger */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={() => setShowCredits(v => !v)} className="flex items-center gap-2">
+            <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+              Credits · S${Math.round(creditsTotal(credits))}
+            </p>
+            <span className="text-gray-300 text-xs">{showCredits ? '▲' : '▼'}</span>
+          </button>
+          <button
+            onClick={() => openCredit()}
+            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold shadow-sm"
+          >
+            + Add
+          </button>
+        </div>
+        {showCredits && (
+          <div className="space-y-2">
+            {credits.map(credit => (
+              <div key={credit.id} className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5 flex justify-between items-center gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{credit.description}</p>
+                  <p className="text-xs text-gray-400">
+                    {CREDIT_KINDS.find(k => k.value === credit.kind)?.label ?? 'Other'} · {new Date(credit.date + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <p className="text-emerald-700 font-bold text-sm">+S${Math.round(credit.amount)}</p>
+                  <button onClick={() => openCredit(credit)} className="text-xs text-gray-400">✏️</button>
+                  <button onClick={() => deleteCredit(credit.id)} className="text-xs text-red-400">✕</button>
+                </div>
+              </div>
+            ))}
+            {credits.length === 0 && (
+              <p className="text-gray-400 text-center text-sm py-2">No credits yet.</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Credit modal */}
+      {creditForm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setCreditForm(null)}>
           <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-24 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-900 mb-5">Add Reward</h2>
-            <form onSubmit={addItem} className="space-y-4">
+            <h2 className="text-lg font-bold text-gray-900 mb-5">{creditForm.id ? 'Edit Credit' : 'Add Credit'}</h2>
+            <form onSubmit={saveCredit} className="space-y-4">
               <input
                 type="text"
-                placeholder="e.g. New headphones"
-                value={newName}
-                onChange={e => setNewName(e.target.value)}
+                placeholder="e.g. Sold Garmin watch"
+                value={creditForm.description}
+                onChange={e => setCreditForm({ ...creditForm, description: e.target.value })}
                 required
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
@@ -281,23 +381,37 @@ export default function RewardsPage() {
                 type="number"
                 step="0.01"
                 min="0.01"
-                placeholder="Price in SGD"
-                value={newPrice}
-                onChange={e => setNewPrice(e.target.value)}
+                placeholder="Amount received in SGD"
+                value={creditForm.amount}
+                onChange={e => setCreditForm({ ...creditForm, amount: e.target.value })}
                 required
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
               <input
-                type="url"
-                placeholder="Product URL (optional)"
-                value={newUrl}
-                onChange={e => setNewUrl(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+                type="date"
+                value={creditForm.date}
+                onChange={e => setCreditForm({ ...creditForm, date: e.target.value })}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
+              <div className="grid grid-cols-4 gap-2">
+                {CREDIT_KINDS.map(k => (
+                  <button
+                    key={k.value}
+                    type="button"
+                    onClick={() => setCreditForm({ ...creditForm, kind: k.value })}
+                    className={`py-2 rounded-xl text-sm font-medium ${
+                      creditForm.kind === k.value ? 'bg-emerald-700 text-white' : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
+                <button type="button" onClick={() => setCreditForm(null)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold disabled:opacity-50">
-                  {saving ? 'Saving...' : 'Add'}
+                  {saving ? 'Saving...' : 'Save'}
                 </button>
               </div>
             </form>
@@ -305,17 +419,17 @@ export default function RewardsPage() {
         </div>
       )}
 
-      {/* Edit modal */}
-      {editItem && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setEditItem(null)}>
+      {/* Reward modal */}
+      {itemForm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-end justify-center" onClick={() => setItemForm(null)}>
           <div className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-24 shadow-xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-900 mb-5">Edit Reward</h2>
-            <form onSubmit={saveEdit} className="space-y-4">
+            <h2 className="text-lg font-bold text-gray-900 mb-5">{itemForm.id ? 'Edit Reward' : 'Add Reward'}</h2>
+            <form onSubmit={saveItem} className="space-y-4">
               <input
                 type="text"
                 placeholder="e.g. New headphones"
-                value={editName}
-                onChange={e => setEditName(e.target.value)}
+                value={itemForm.name}
+                onChange={e => setItemForm({ ...itemForm, name: e.target.value })}
                 required
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
@@ -324,20 +438,20 @@ export default function RewardsPage() {
                 step="0.01"
                 min="0.01"
                 placeholder="Price in SGD"
-                value={editPrice}
-                onChange={e => setEditPrice(e.target.value)}
+                value={itemForm.price}
+                onChange={e => setItemForm({ ...itemForm, price: e.target.value })}
                 required
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
               <input
                 type="url"
                 placeholder="Product URL (optional)"
-                value={editUrl}
-                onChange={e => setEditUrl(e.target.value)}
+                value={itemForm.url}
+                onChange={e => setItemForm({ ...itemForm, url: e.target.value })}
                 className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
               />
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setEditItem(null)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
+                <button type="button" onClick={() => setItemForm(null)} className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-700 font-semibold">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 py-3 rounded-xl bg-emerald-700 text-white font-semibold disabled:opacity-50">
                   {saving ? 'Saving...' : 'Save'}
                 </button>

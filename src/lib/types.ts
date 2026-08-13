@@ -52,6 +52,25 @@ export type WishlistItem = {
   redeemed_at: string | null
 }
 
+export type CreditKind = 'sold' | 'gift' | 'cashback' | 'other'
+
+export const CREDIT_KINDS: { value: CreditKind; label: string }[] = [
+  { value: 'sold', label: 'Sold' },
+  { value: 'gift', label: 'Gift' },
+  { value: 'cashback', label: 'Cashback' },
+  { value: 'other', label: 'Other' },
+]
+
+export type Credit = {
+  id: string
+  user_id: string
+  description: string
+  amount: number
+  date: string
+  kind: CreditKind
+  created_at: string
+}
+
 export type Feedback = {
   id: string
   user_id: string

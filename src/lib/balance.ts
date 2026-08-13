@@ -57,6 +57,24 @@ export function freezeBonusTotal(
   return total
 }
 
+// Credits are real money added by hand (a sale, a gift, cashback). They top up
+// the reward budget but are never earnings, so they stay out of dayEarnings and
+// out of the run rate.
+export type CreditEntry = { amount: number; date: string }
+
+export function creditsTotal(credits: CreditEntry[], upToDate?: string): number {
+  return credits
+    .filter(c => upToDate === undefined || c.date <= upToDate)
+    .reduce((sum, c) => sum + c.amount, 0)
+}
+
+// What is left to spend: everything that came in, minus everything redeemed.
+// Earned, credits and spent are each shown gross in the UI, so there is no rule
+// about which pot drains first.
+export function availableBalance(earned: number, credits: number, spent: number): number {
+  return Math.max(0, earned + credits - spent)
+}
+
 // Total earned across every day that has any check-in — the sum of dayEarnings
 // over all dates, so a single day's earnings are always part of this total,
 // plus the weekly no-freeze bonus for every finished freeze-free week.

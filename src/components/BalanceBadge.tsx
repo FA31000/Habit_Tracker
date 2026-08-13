@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { fetchUserConfig } from '@/lib/appConfig'
-import { totalEarned, type CheckinsByHabit } from '@/lib/balance'
+import { totalEarned, creditsTotal, availableBalance, type CheckinsByHabit } from '@/lib/balance'
 
 export default function BalanceBadge() {
   const [balance, setBalance] = useState<number | null>(null)
@@ -19,11 +19,13 @@ export default function BalanceBadge() {
         { data: habitsData },
         { data: allCheckins },
         { data: redeemed },
+        { data: credits },
       ] = await Promise.all([
         fetchUserConfig(),
         supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true),
         supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
         supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true),
+        supabase.from('credits').select('amount, date').eq('user_id', user.id),
       ])
       setSymbol(cfg.currencySymbol ?? 'S$')
 
@@ -35,10 +37,18 @@ export default function BalanceBadge() {
 
       const earned = totalEarned(habitsData ?? [], checkinsByHabit, cfg)
       const spent = (redeemed ?? []).reduce((sum: number, r: { price: number }) => sum + r.price, 0)
-      setBalance(Math.max(0, earned - spent))
+      const credit = creditsTotal(credits ?? [])
+      setBalance(availableBalance(earned, credit, spent))
     }
 
     fetchBalance()
+
+    // The badge sits in the layout, so it never remounts while moving between
+    // tabs. The Rewards page fires this after a redemption or a credit change
+    // so the amount stays right without a full page reload.
+    const onBalanceChange = (e: StorageEvent) => { if (e.key === 'balance') fetchBalance() }
+    window.addEventListener('storage', onBalanceChange)
+    return () => window.removeEventListener('storage', onBalanceChange)
   }, [])
 
   if (balance === null) return null
