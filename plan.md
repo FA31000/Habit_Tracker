@@ -117,7 +117,9 @@ Badges displayed on a profile/trophy page per habit.
 - New accounts start with an empty wishlist
 - Items show as locked until balance is sufficient
 - Mark as "Redeemed" — deducts price from dollar balance
-- Up/down arrow buttons on each reward to reorder; order persisted in localStorage
+- **Up/down arrow buttons on each reward to reorder**, saved to the account in `wishlist_items.sort_order` (migration: `supabase-reward-order.sql`), so the order is the same on every device. Rewards are loaded ordered by `sort_order` (nulls last), then price — a brand new reward has no position yet, so it lands at the bottom. Moving one renumbers every visible reward 0…n.
+  - The arrows move rewards within the **visible** (not yet redeemed) list. Previously the click handler applied the move to the full item list, which also holds redeemed rewards: once a redeemed reward sat between two available ones, the arrows silently swapped rows that weren't on screen and appeared dead. Fixed.
+  - The old browser-only order (`rewards_order` in localStorage) is lifted onto the account once, on first load, and only when no reward has a `sort_order` yet — so an order already set on another device wins.
 - History of redeemed items
 - **Forecast card** (`src/components/RewardForecast.tsx`), at the top of the Rewards page (the separate "Your balance" card was removed — the top green badge already shows the amount):
   - Run rate = average money earned per day over the last 14 full days (today excluded, days before the first check-in excluded), using the shared `dayEarnings` from `src/lib/balance.ts`

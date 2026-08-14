@@ -50,6 +50,7 @@ export type WishlistItem = {
   url: string | null
   redeemed: boolean
   redeemed_at: string | null
+  sort_order: number | null
 }
 
 export type Credit = {

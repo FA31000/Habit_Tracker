@@ -8,6 +8,8 @@ import { addDays, todayDate } from '@/lib/streak'
 import { totalEarned, dayEarnings, creditsTotal, availableBalance, type CheckinsByHabit } from '@/lib/balance'
 import RewardForecast from '@/components/RewardForecast'
 
+// Legacy: the order used to live here, per browser. It now lives on the account
+// in wishlist_items.sort_order. Only still read for the one-time migration.
 const ORDER_KEY = 'rewards_order'
 
 // Tells the header BalanceBadge to refetch. It lives in the layout and never
@@ -46,6 +48,28 @@ function applyOrder(items: WishlistItem[], order: string[]): WishlistItem[] {
   return sorted
 }
 
+// Writes the list's positions back to the account, so the order is the same on
+// every device.
+async function persistOrder(supabase: ReturnType<typeof createClient>, ordered: WishlistItem[]) {
+  await Promise.all(ordered.map((item, i) =>
+    supabase.from('wishlist_items').update({ sort_order: i }).eq('id', item.id)
+  ))
+}
+
+// One-time lift of the old browser-only order onto the account. Skipped when any
+// reward already has a position, so an order set on another device always wins.
+async function migrateLocalOrder(supabase: ReturnType<typeof createClient>, items: WishlistItem[]): Promise<WishlistItem[]> {
+  const raw = localStorage.getItem(ORDER_KEY)
+  if (!raw) return items
+  localStorage.removeItem(ORDER_KEY)
+  if (items.some(i => i.sort_order !== null)) return items
+  let order: string[] = []
+  try { order = JSON.parse(raw) } catch { return items }
+  const sorted = applyOrder(items, order)
+  await persistOrder(supabase, sorted)
+  return sorted
+}
+
 export default function RewardsPage() {
   const [items, setItems] = useState<WishlistItem[]>([])
   const [credits, setCredits] = useState<Credit[]>([])
@@ -67,7 +91,7 @@ export default function RewardsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: wishlist } = await supabase.from('wishlist_items').select('*').eq('user_id', user.id).order('redeemed', { ascending: true }).order('price', { ascending: true })
+    const { data: wishlist } = await supabase.from('wishlist_items').select('*').eq('user_id', user.id).order('sort_order', { ascending: true, nullsFirst: false }).order('price', { ascending: true })
     const { data: checkins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
     const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
     const { data: creditRows } = await supabase.from('credits').select('*').eq('user_id', user.id).order('date', { ascending: false })
@@ -123,8 +147,7 @@ export default function RewardsPage() {
     }
     setHistory(hist)
 
-    const savedOrder: string[] = JSON.parse(localStorage.getItem(ORDER_KEY) ?? '[]')
-    setItems(applyOrder(wishlist ?? [], savedOrder))
+    setItems(await migrateLocalOrder(supabase, wishlist ?? []))
     setCredits(creditList)
     setBalance(availableBalance(earned, credit, spent))
     setEarnedTotal(earned)
@@ -174,7 +197,6 @@ export default function RewardsPage() {
   async function deleteItem(id: string) {
     if (!confirm('Remove this reward?')) return
     await supabase.from('wishlist_items').delete().eq('id', id)
-    localStorage.setItem(ORDER_KEY, JSON.stringify(items.filter(i => i.id !== id).map(i => i.id)))
     await load()
     notifyBalanceChanged()
   }
@@ -214,16 +236,17 @@ export default function RewardsPage() {
     notifyBalanceChanged()
   }
 
-  function moveItem(index: number, direction: -1 | 1) {
+  // index is the position in the visible list (the ones not yet redeemed), which
+  // is what the arrows show. The move has to be applied to that same list — not
+  // to `items`, which also holds redeemed rewards.
+  async function moveItem(index: number, direction: -1 | 1) {
+    const visible = items.filter(i => !i.redeemed)
     const newIndex = index + direction
-    setItems(prev => {
-      if (newIndex < 0 || newIndex >= prev.length) return prev
-      const next = [...prev]
-      const [item] = next.splice(index, 1)
-      next.splice(newIndex, 0, item)
-      localStorage.setItem(ORDER_KEY, JSON.stringify(next.map(i => i.id)))
-      return next
-    })
+    if (newIndex < 0 || newIndex >= visible.length) return
+    const [moved] = visible.splice(index, 1)
+    visible.splice(newIndex, 0, moved)
+    setItems([...visible, ...items.filter(i => i.redeemed)])
+    await persistOrder(supabase, visible)
   }
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
