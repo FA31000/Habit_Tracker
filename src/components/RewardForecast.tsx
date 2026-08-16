@@ -40,7 +40,10 @@ export default function RewardForecast({ balance, ratePerDay, items, today, hist
       return { label: shortDate(addDays(today, day)), value: Math.round(balance + ratePerDay * day), projected: true }
     }),
   ]
-  const yMax = Math.max(...bars.map(b => b.value)) * 1.15
+  // The balance can be negative after redeeming on credit, so the axis has to
+  // reach below zero.
+  const yMax = Math.max(0, ...bars.map(b => b.value)) * 1.15
+  const yMin = Math.min(0, ...bars.map(b => b.value)) * 1.15
 
   return (
     <div className="bg-white rounded-xl p-3 shadow-sm ring-1 ring-black/5 mb-2">
@@ -51,7 +54,7 @@ export default function RewardForecast({ balance, ratePerDay, items, today, hist
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={bars} margin={{ top: 14, right: 2, left: 2, bottom: 0 }}>
           <XAxis dataKey="label" tick={{ fill: '#9ca3af', fontSize: 9 }} axisLine={false} tickLine={false} minTickGap={14} />
-          <YAxis hide domain={[0, yMax]} />
+          <YAxis hide domain={[yMin, yMax]} />
           <Bar dataKey="value" radius={[3, 3, 0, 0]} isAnimationActive={false}>
             <LabelList dataKey="value" position="top" style={{ fill: '#6b7280', fontSize: 9 }} />
             {bars.map((b, i) => <Cell key={i} fill={b.projected ? '#a7f3d0' : '#047857'} />)}

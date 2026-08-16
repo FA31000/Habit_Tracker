@@ -138,7 +138,7 @@ export default function RewardsPage() {
         e += earningsByDate.get(dt)!
       }
       const s = spentByDate.filter(x => x.date <= d).reduce((sum, x) => sum + x.price, 0)
-      return Math.max(0, e + creditsTotal(creditList, d) - s)
+      return e + creditsTotal(creditList, d) - s
     }
     const hist: { date: string; value: number }[] = []
     for (let w = 4; w >= 0; w--) {
@@ -159,8 +159,11 @@ export default function RewardsPage() {
   useEffect(() => { load() }, [load])
 
   async function redeem(item: WishlistItem) {
-    if (balance < item.price) return
-    if (!confirm(`Redeem "${item.name}" for S$${item.price.toFixed(2)}?`)) return
+    // A reward can be redeemed even without the money for it. The balance then
+    // goes negative and later earnings pay it back.
+    const after = balance - item.price
+    const warning = after < 0 ? `\n\nThis leaves your balance at −S$${Math.abs(after).toFixed(2)}.` : ''
+    if (!confirm(`Redeem "${item.name}" for S$${item.price.toFixed(2)}?${warning}`)) return
     await supabase.from('wishlist_items').update({ redeemed: true, redeemed_at: new Date().toISOString() }).eq('id', item.id)
     await load()
     notifyBalanceChanged()
@@ -281,7 +284,9 @@ export default function RewardsPage() {
         </div>
         <div className="text-right">
           <p className="text-[10px] text-gray-400 uppercase tracking-wide">Balance</p>
-          <p className="text-base font-extrabold text-emerald-700">S${Math.round(balance)}</p>
+          <p className={`text-base font-extrabold ${balance < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+            {balance < 0 ? '−' : ''}S${Math.abs(Math.round(balance))}
+          </p>
         </div>
       </div>
 
@@ -294,7 +299,7 @@ export default function RewardsPage() {
       <div className="space-y-2">
         {available.map((item, index) => {
           const canRedeem = balance >= item.price
-          const progress = Math.min(100, (balance / item.price) * 100)
+          const progress = Math.max(0, Math.min(100, (balance / item.price) * 100))
           return (
             <div
               key={item.id}
@@ -335,12 +340,11 @@ export default function RewardsPage() {
                 <span className="text-xs text-gray-400">{progress.toFixed(0)}% saved</span>
                 <button
                   onClick={() => redeem(item)}
-                  disabled={!canRedeem}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${
-                    canRedeem ? 'bg-emerald-700 hover:bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition shadow-sm text-white ${
+                    canRedeem ? 'bg-emerald-700 hover:bg-emerald-600' : 'bg-amber-600 hover:bg-amber-500'
                   }`}
                 >
-                  {canRedeem ? '🎁 Redeem' : `Need S$${Math.round(item.price - balance)} more`}
+                  {canRedeem ? '🎁 Redeem' : `🎁 Redeem (−S$${Math.round(item.price - balance)})`}
                 </button>
               </div>
             </div>

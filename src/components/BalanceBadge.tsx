@@ -54,8 +54,10 @@ export default function BalanceBadge() {
   if (balance === null) return null
 
   return (
-    <div className="bg-white/20 rounded-full px-3 py-1">
-      <span className="text-white font-bold text-sm">{symbol}{balance.toFixed(2)}</span>
+    <div className={`rounded-full px-3 py-1 ${balance < 0 ? 'bg-red-500/70' : 'bg-white/20'}`}>
+      <span className="text-white font-bold text-sm">
+        {balance < 0 ? '−' : ''}{symbol}{Math.abs(balance).toFixed(2)}
+      </span>
     </div>
   )
 }

@@ -70,9 +70,10 @@ export function creditsTotal(credits: CreditEntry[], upToDate?: string): number 
 
 // What is left to spend: everything that came in, minus everything redeemed.
 // Earned, credits and spent are each shown gross in the UI, so there is no rule
-// about which pot drains first.
+// about which pot drains first. This can go negative — a big reward may be
+// redeemed on credit and paid back by later earnings.
 export function availableBalance(earned: number, credits: number, spent: number): number {
-  return Math.max(0, earned + credits - spent)
+  return earned + credits - spent
 }
 
 // Total earned across every day that has any check-in — the sum of dayEarnings
