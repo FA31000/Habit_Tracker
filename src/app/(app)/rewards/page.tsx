@@ -169,6 +169,14 @@ export default function RewardsPage() {
     notifyBalanceChanged()
   }
 
+  // Puts a redeemed reward back in the list and refunds its price.
+  async function unredeem(item: WishlistItem) {
+    if (!confirm(`Cancel "${item.name}"? S$${item.price.toFixed(2)} goes back to your balance.`)) return
+    await supabase.from('wishlist_items').update({ redeemed: false, redeemed_at: null }).eq('id', item.id)
+    await load()
+    notifyBalanceChanged()
+  }
+
   function openItem(item?: WishlistItem) {
     setItemForm(item
       ? { id: item.id, name: item.name, price: String(item.price), url: item.url ?? '' }
@@ -362,7 +370,10 @@ export default function RewardsPage() {
                   <p className="text-sm font-medium line-through text-gray-400">{item.name}</p>
                   <p className="text-xs text-gray-400">{item.redeemed_at ? new Date(item.redeemed_at).toLocaleDateString('en-SG') : ''}</p>
                 </div>
-                <p className="text-gray-400 font-semibold text-sm">S${Math.round(item.price)}</p>
+                <div className="flex items-center gap-3 shrink-0">
+                  <p className="text-gray-400 font-semibold text-sm">S${Math.round(item.price)}</p>
+                  <button onClick={() => unredeem(item)} className="text-xs text-gray-500 underline">Undo</button>
+                </div>
               </div>
             ))}
           </div>
