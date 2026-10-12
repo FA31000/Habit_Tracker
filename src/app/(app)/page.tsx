@@ -255,33 +255,45 @@ export default function CheckInPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
     const earned: string[] = []
-    for (const habit of habits) {
-      if (!checkins[habit.id]) continue
-      const { data: habitCheckins } = await supabase.from('checkins').select('date, response').eq('habit_id', habit.id).eq('user_id', user.id)
-      const list = (habitCheckins ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
+    const answered = habits.filter(h => checkins[h.id])
+    const ids = answered.map(h => h.id)
+    // Fetch everything at once instead of one habit at a time.
+    const [checkinResults, { data: streakRows }, { data: badgeRows }] = await Promise.all([
+      Promise.all(answered.map(h => supabase.from('checkins').select('date, response').eq('habit_id', h.id).eq('user_id', user.id))),
+      supabase.from('streaks').select('habit_id, longest_streak').in('habit_id', ids),
+      supabase.from('badges').select('habit_id, milestone_days').in('habit_id', ids),
+    ])
+    const streakUpdates = []
+    const newStreakRows = []
+    const newBadgeRows = []
+    for (const [i, habit] of answered.entries()) {
+      const list = (checkinResults[i].data ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, selectedDate)
-      const { data: streakData } = await supabase.from('streaks').select('id, longest_streak').eq('habit_id', habit.id).single()
+      const streakData = (streakRows ?? []).find((s: { habit_id: string }) => s.habit_id === habit.id)
       const newLongest = Math.max(longest, streakData?.longest_streak ?? 0)
       if (streakData) {
-        await supabase.from('streaks').update({ current_streak: current, longest_streak: newLongest, updated_at: new Date().toISOString() }).eq('habit_id', habit.id)
+        streakUpdates.push(supabase.from('streaks').update({ current_streak: current, longest_streak: newLongest, updated_at: new Date().toISOString() }).eq('habit_id', habit.id))
       } else {
-        await supabase.from('streaks').insert({ habit_id: habit.id, user_id: user.id, current_streak: current, longest_streak: newLongest })
+        newStreakRows.push({ habit_id: habit.id, user_id: user.id, current_streak: current, longest_streak: newLongest })
       }
-      const { data: habitBadges } = await supabase.from('badges').select('milestone_days').eq('habit_id', habit.id)
-      const have = new Set((habitBadges ?? []).map((b: { milestone_days: number }) => b.milestone_days))
+      const have = new Set((badgeRows ?? []).filter((b: { habit_id: string }) => b.habit_id === habit.id).map((b: { milestone_days: number }) => b.milestone_days))
       for (const milestone of BADGE_MILESTONES) {
         if (newLongest >= milestone && !have.has(milestone)) {
-          await supabase.from('badges').upsert({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
+          newBadgeRows.push({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
           earned.push(`${habit.name} — ${milestone}-day badge!`)
         }
       }
     }
     const perfectDay = habits.length > 0 && habits.every(h => checkins[h.id] === 'yes')
-    if (perfectDay) {
-      await supabase.from('perfect_days').upsert({ user_id: user.id, date: selectedDate }, { onConflict: 'user_id,date', ignoreDuplicates: true })
-    } else {
-      await supabase.from('perfect_days').delete().eq('user_id', user.id).eq('date', selectedDate)
-    }
+    // Save streaks, badges and perfect day all at once.
+    await Promise.all([
+      ...streakUpdates,
+      newStreakRows.length > 0 && supabase.from('streaks').insert(newStreakRows),
+      newBadgeRows.length > 0 && supabase.from('badges').upsert(newBadgeRows),
+      perfectDay
+        ? supabase.from('perfect_days').upsert({ user_id: user.id, date: selectedDate }, { onConflict: 'user_id,date', ignoreDuplicates: true })
+        : supabase.from('perfect_days').delete().eq('user_id', user.id).eq('date', selectedDate),
+    ])
     const isSunday = new Date(selectedDate + 'T00:00:00').getDay() === 0
     setShowFreezeBonus(isSunday && !freezeUsed)
     setNewBadges(earned)
