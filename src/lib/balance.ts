@@ -5,8 +5,8 @@ export type EarnHabit = { id: string; dollar_value: number; allowed_no_days_per_
 export type CheckinsByHabit = Record<string, StreakCheckin[]>
 
 // Money earned on a single date: each "yes" pays its dollar value times the
-// habit's streak multiplier (streak measured as of that date). A perfect day —
-// every habit answered "yes" — doubles the day's total.
+// habit's streak multiplier (streak measured as of that date). A perfect day
+// doubles the day's total (see isPerfectDay).
 export function dayEarnings(
   date: string,
   habits: EarnHabit[],
@@ -22,10 +22,15 @@ export function dayEarnings(
       earned += h.dollar_value * getStreakMultiplier(streak, cfg)
     }
   }
-  const perfectDay =
-    habits.length > 0 &&
-    habits.every(h => (checkinsByHabit[h.id] ?? []).find(c => c.date === date)?.response === 'yes')
-  return perfectDay ? earned * 2 : earned
+  const responses = habits.map(h => (checkinsByHabit[h.id] ?? []).find(c => c.date === date)?.response)
+  return isPerfectDay(responses) ? earned * 2 : earned
+}
+
+// A perfect day: every habit that applied that day is "yes". "na" habits are
+// left out, but at least one habit must be "yes".
+export function isPerfectDay(responses: (string | undefined)[]): boolean {
+  const applicable = responses.filter(r => r !== 'na')
+  return applicable.length > 0 && applicable.every(r => r === 'yes')
 }
 
 // Weekly no-freeze bonus: for every week (Mon–Sun) that has finished — its

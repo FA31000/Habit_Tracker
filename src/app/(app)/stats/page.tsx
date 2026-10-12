@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { applyStoredOrder } from '@/lib/habitOrder'
-import { computeHabitStreak, todayDate } from '@/lib/streak'
+import { computeHabitStreak, todayDate, responseCounts } from '@/lib/streak'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
@@ -13,9 +13,7 @@ type HabitStats = {
   habit: Habit
   currentStreak: number
   longestStreak: number
-  totalKept: number
-  totalDays: number
-  successRate: number
+  counts: ReturnType<typeof responseCounts>
   earnedBadges: number[]
 }
 
@@ -61,17 +59,13 @@ export default function StatsPage() {
 
     const habitStats: HabitStats[] = applyStoredOrder(habits ?? []).map(habit => {
       const hc = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
-      const kept = hc.filter(c => c.response === 'yes').length
-      const total = hc.length
-      const list = hc.map(c => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
+      const list = hc.map(c => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' }))
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, today)
       return {
         habit,
         currentStreak: current,
         longestStreak: longest,
-        totalKept: kept,
-        totalDays: total,
-        successRate: total > 0 ? Math.round((kept / total) * 100) : 0,
+        counts: responseCounts(list),
         earnedBadges: (badgeMap.get(habit.id) ?? []).sort((a, b) => a - b),
       }
     })
@@ -189,6 +183,14 @@ export default function StatsPage() {
                   <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
                   {topBadge && <span className="text-lg" title={`${topBadge.label} badge`}>{topBadge.emoji}</span>}
                 </div>
+                <div className="grid grid-cols-4 gap-2 mb-3 pb-3 border-b border-gray-100">
+                  {([['✅', 'Yes', s.counts.yes], ['❌', 'No', s.counts.no], ['❄️', 'Freeze', s.counts.freeze], ['⏸️', 'NA', s.counts.na]] as const).map(([icon, label, n]) => (
+                    <div key={label} className="text-center">
+                      <p className="text-sm text-gray-700 font-semibold">{icon} {n}</p>
+                      <p className="text-[11px] text-gray-400">{label}</p>
+                    </div>
+                  ))}
+                </div>
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   <div className="text-center">
                     <p className="text-gray-900 font-bold">{s.currentStreak}</p>
@@ -199,7 +201,7 @@ export default function StatsPage() {
                     <p className="text-xs text-gray-400">Best</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-gray-900 font-bold">{s.successRate}%</p>
+                    <p className="text-gray-900 font-bold">{s.counts.rate}%</p>
                     <p className="text-xs text-gray-400">Rate</p>
                   </div>
                 </div>

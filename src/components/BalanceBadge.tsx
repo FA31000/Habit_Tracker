@@ -32,7 +32,7 @@ export default function BalanceBadge() {
       const checkinsByHabit: CheckinsByHabit = {}
       ;(allCheckins ?? []).forEach((c: { habit_id: string; date: string; response: string }) => {
         if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = []
-        checkinsByHabit[c.habit_id].push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' })
+        checkinsByHabit[c.habit_id].push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' })
       })
 
       const earned = totalEarned(habitsData ?? [], checkinsByHabit, cfg)

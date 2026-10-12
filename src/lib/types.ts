@@ -21,7 +21,7 @@ export type Checkin = {
   habit_id: string
   user_id: string
   date: string
-  response: 'yes' | 'no' | 'freeze'
+  response: 'yes' | 'no' | 'freeze' | 'na'
   answers: PopupAnswers | null
 }
 

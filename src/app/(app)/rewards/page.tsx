@@ -101,7 +101,7 @@ export default function RewardsPage() {
     const checkinsByHabit: CheckinsByHabit = {}
     ;(checkins ?? []).forEach(c => {
       if (!checkinsByHabit[c.habit_id]) checkinsByHabit[c.habit_id] = []
-      checkinsByHabit[c.habit_id].push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' })
+      checkinsByHabit[c.habit_id].push({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' })
     })
     const earned = totalEarned(habits ?? [], checkinsByHabit, cfg)
     const spent = (wishlist ?? []).filter(i => i.redeemed).reduce((s, i) => s + i.price, 0)

@@ -7,13 +7,17 @@ import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, loadAppConfig, t
 import { fetchUserConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
-import { dayEarnings } from '@/lib/balance'
+import { dayEarnings, isPerfectDay } from '@/lib/balance'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
+import { fillMissedDays } from '@/lib/autoNo'
 import Confetti from '@/components/Confetti'
 
-type CheckinMap = Record<string, 'yes' | 'no' | 'freeze'>
+type CheckinMap = Record<string, 'yes' | 'no' | 'freeze' | 'na'>
 
 const MIN_DATE = '2026-06-27'
+
+// Auto-No runs once per app open, not on every date change.
+let missedDaysFilled = false
 
 function todayDate() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
@@ -65,6 +69,11 @@ export default function CheckInPage() {
     }
     if (!user) return
 
+    if (!missedDaysFilled) {
+      await fillMissedDays(supabase, user.id)
+      missedDaysFilled = true
+    }
+
     const [
       { data: habitsData },
       { data: checkinsData },
@@ -89,7 +98,7 @@ export default function CheckInPage() {
     const lists: Record<string, StreakCheckin[]> = {}
     ;(habitsData ?? []).forEach((h: Habit) => {
       const byDate = checkinsByHabit[h.id] ?? {}
-      const list = Object.entries(byDate).map(([date, response]) => ({ date, response: response as 'yes' | 'no' | 'freeze' }))
+      const list = Object.entries(byDate).map(([date, response]) => ({ date, response: response as 'yes' | 'no' | 'freeze' | 'na' }))
       lists[h.id] = list
       computedStreaks[h.id] = computeHabitStreak(list, h.allowed_no_days_per_week, selectedDate).current
     })
@@ -153,7 +162,7 @@ export default function CheckInPage() {
   }
 
   // Streak the habit would have if selectedDate held `response` (null = day left unanswered).
-  function projectStreak(habit: Habit, response: 'yes' | 'no' | 'freeze' | null): number {
+  function projectStreak(habit: Habit, response: 'yes' | 'no' | 'freeze' | 'na' | null): number {
     const list = (habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate)
     const hypo = response ? [...list, { date: selectedDate, response }] : list
     return computeHabitStreak(hypo, habit.allowed_no_days_per_week, selectedDate).current
@@ -212,7 +221,7 @@ export default function CheckInPage() {
     closePopup()
   }
 
-  async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze', answers: PopupAnswers) {
+  async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
     const key = habitId + '_' + selectedDate
@@ -257,7 +266,7 @@ export default function CheckInPage() {
     for (const habit of habits) {
       if (!checkins[habit.id]) continue
       const { data: habitCheckins } = await supabase.from('checkins').select('date, response').eq('habit_id', habit.id).eq('user_id', user.id)
-      const list = (habitCheckins ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' }))
+      const list = (habitCheckins ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' }))
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, selectedDate)
       const { data: streakData } = await supabase.from('streaks').select('id, longest_streak').eq('habit_id', habit.id).single()
       const newLongest = Math.max(longest, streakData?.longest_streak ?? 0)
@@ -275,7 +284,7 @@ export default function CheckInPage() {
         }
       }
     }
-    const perfectDay = habits.length > 0 && habits.every(h => checkins[h.id] === 'yes')
+    const perfectDay = isPerfectDay(habits.map(h => checkins[h.id]))
     if (perfectDay) {
       await supabase.from('perfect_days').upsert({ user_id: user.id, date: selectedDate }, { onConflict: 'user_id,date', ignoreDuplicates: true })
     } else {
@@ -336,7 +345,7 @@ export default function CheckInPage() {
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-500">{streak} {streak === 1 ? 'day' : 'days'}</span>
-                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{(habit.dollar_value * getStreakMultiplier(streak, appConfig)).toFixed(2)}</span>
+                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{(habit.dollar_value * getStreakMultiplier(streak, appConfig)).toFixed(2)}</span>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -350,9 +359,15 @@ export default function CheckInPage() {
                   onClick={() => openPopup(habit.id, 'no')}
                   className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'freeze' ? 'bg-blue-500 text-white' : response === 'no' ? (noWithinAllowance(habit) ? 'bg-orange-500 text-white' : 'bg-red-500 text-white') : 'bg-gray-100 text-gray-600 active:bg-red-100'}`}
                 >
-                  {response === 'freeze' ? '❄️ Frozen' : response === 'no' ? getCheckinLabel(habit.id, 'no') : response === 'yes' ? '❌ No' : (
+                  {response === 'freeze' ? '❄️ Frozen' : response === 'no' ? getCheckinLabel(habit.id, 'no') : response === 'yes' || response === 'na' ? '❌ No' : (
                     <>❌ No <span className="ml-1 inline-flex items-center justify-center min-w-[1.15rem] h-[1.15rem] px-1 rounded-full bg-gray-300 text-gray-700 text-[11px] font-bold align-middle">{nosLeftThisWeek(habit)}</span></>
                   )}
+                </button>
+                <button
+                  onClick={() => { if (response !== 'na') saveCheckin(habit.id, 'na', {}) }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'na' ? 'bg-gray-500 text-white' : 'bg-gray-100 text-gray-400 active:bg-gray-200'}`}
+                >
+                  NA
                 </button>
               </div>
             </div>
@@ -393,7 +408,7 @@ export default function CheckInPage() {
         const config = getPopupConfig(pendingPopupHabitId)
         const isNo = pendingResponse === 'no'
         const showQuestions = !!config && config.trigger === pendingResponse
-        const finalResponse: 'yes' | 'no' | 'freeze' = isNo && popupFreeze ? 'freeze' : pendingResponse
+        const finalResponse: 'yes' | 'no' | 'freeze' | 'na' = isNo && popupFreeze ? 'freeze' : pendingResponse
         const resultStreak = projectStreak(habit, finalResponse)
         const baseStreak = projectStreak(habit, null)
         const willBreak = isNo && !popupFreeze && resultStreak < baseStreak

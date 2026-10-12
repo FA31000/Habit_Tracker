@@ -1,4 +1,4 @@
-export type StreakResponse = 'yes' | 'no' | 'freeze'
+export type StreakResponse = 'yes' | 'no' | 'freeze' | 'na'
 export type StreakCheckin = { date: string; response: StreakResponse }
 
 // Today's date in Singapore time, as YYYY-MM-DD.
@@ -33,6 +33,7 @@ export function getWeekStart(dateStr: string): string {
 //   available, so any recorded freeze is valid).
 // - A "no" — or a missed day with no answer — adds 1 while you are still
 //   within this habit's weekly "No" allowance; once you go over, it breaks the streak.
+// - An "na" (not applicable) is skipped: it does not count and does not break.
 // - Today, if not yet answered, is skipped (it does not count and does not break).
 // - Nothing before your first ever check-in counts.
 export function computeHabitStreak(
@@ -55,6 +56,7 @@ export function computeHabitStreak(
     const r = byDate[day]
     if (r === 'yes') { classes.push('count'); continue }
     if (r === 'freeze') { classes.push('count'); continue }
+    if (r === 'na') { classes.push('skip'); continue }
     if (r === undefined && day === today) { classes.push('skip'); continue }
     const week = getWeekStart(day)
     const used = (noUsedByWeek[week] ?? 0) + 1
@@ -77,4 +79,13 @@ export function computeHabitStreak(
   }
 
   return { current, longest }
+}
+
+// How many days of each answer a habit has, and its success rate:
+// Yes ÷ (Yes + No). Freeze and NA are left out of the rate.
+export function responseCounts(checkins: StreakCheckin[]) {
+  const counts = { yes: 0, no: 0, freeze: 0, na: 0 }
+  for (const c of checkins) counts[c.response]++
+  const decided = counts.yes + counts.no
+  return { ...counts, rate: decided > 0 ? Math.round((counts.yes / decided) * 100) : 0 }
 }
