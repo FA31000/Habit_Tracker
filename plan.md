@@ -106,12 +106,11 @@ Badges are based on the **longest** streak a habit has ever reached and are kept
 Badges displayed on a profile/trophy page per habit.
 
 ### 6. Stats Page
-- Per habit: a small top row of all-time answer counts — ✅ Yes · ❌ No · ❄️ Freeze · ⏸️ NA — then current streak, longest streak and success rate (%) below. **Rate = Yes ÷ (Yes + No)**; Freeze and NA are left out. Missed days count as No because auto-No saves them. Counts and rate are all-time (the 7 days / 30 days / All time switcher only affects the charts). Computed by `responseCounts` in `src/lib/streak.ts`; the friend profile page shows the same row and rate.
+- Per habit: a small top row of all-time answer counts — ✅ Yes · ❌ No · ❄️ Freeze · ⏸️ NA — then current streak, longest streak and success rate (%) below. **Rate = Yes ÷ (Yes + No)**; Freeze and NA are left out. Missed days count as No because auto-No saves them. Counts, rate and charts are all-time. Computed by `responseCounts` in `src/lib/streak.ts`; the friend profile page shows the same row and rate.
 - **Badge legend**: a small "Badges" card at the top of the page showing all six badge colors with their day counts (⚫ 7, 🟤 14, ⚪ 30, 🟡 90, 🩶 180, 🏆 365), as a reminder of what each badge means (the overall Balance / Days done / Best streak cards were removed — the top green badge already shows the balance)
-- **Time range switcher** (7 days / 30 days / All time) — controls all popup data visualizations below each habit card
 - **Popup data visualizations** per habit (inside the same white card as the habit's streak stats, only if data exists). Hidden by default: a small down-arrow at the bottom of the habit card (shown only when extra stats exist) expands them; clicking again collapses them. The arrow flips upside down when expanded and stays at the bottom of the card.
-  - **Number questions** (e.g. Weight, Minutes read): line graph over selected time range + summary stats (avg, total, entries)
-  - **Multi-choice questions** (e.g. What did you do?, Why not?): horizontal bar chart showing frequency of each option over selected time range
+  - **Number questions** (e.g. Weight, Minutes read): line graph over all time + summary stats (avg, total, entries)
+  - **Multi-choice questions** (e.g. What did you do?, Why not?): horizontal bar chart showing frequency of each option over all time
   - Data read from `checkins.answers` in Supabase (old localStorage data is moved into Supabase by the one-time migration in `src/lib/migrate.ts`)
 
 ### 7. Wishlist (Spending)
@@ -154,7 +153,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
     - **Perfect days**: when a user answers Yes to every active habit that applied on a day (NA habits left out), a "🌟 Person had a perfect day — every habit done!" item appears with the date. Recorded in the `perfect_days` table when Save Check-In is tapped on a perfect day, and removed if that day later stops being perfect.
   - **Thumbs-up** on each badge and perfect-day item: one per person, tap again to undo. Shows the count and the names of who cheered. You cannot thumbs-up your own item.
   - **Comments** on each badge and perfect-day item: short text (max 280 chars), multiple people, visible to everyone including the earner. You can delete your own comment; no editing. You cannot comment on your own item.
-- **Friend profile page** (`/friends/[id]`): shows the same per-habit cards as your own Stats page — habit name, Yes / No / Freeze / NA counts, current streak, best streak, success rate, earned badges, plus the activity charts (number trends and multi-choice bars) with the same 7 days / 30 days / All time switcher. Money balance and wishlist stay private.
+- **Friend profile page** (`/friends/[id]`): shows the same per-habit cards as your own Stats page — habit name, Yes / No / Freeze / NA counts, current streak, best streak, success rate, earned badges, plus the activity charts (number trends and multi-choice bars), all-time (no time range switcher). Money balance and wishlist stay private.
 - **Privacy/data access**: any signed-in user can read every user's display name, habit names, streaks, badges, perfect days (the `perfect_days` table exposes only user_id + date, never which habits or their values), and daily check-ins. A `public_habits` view exposes safe habit columns (id, user_id, name, is_active, created_at, question_config, allowed_no_days_per_week) — never dollar value or description. A `public_checkins` view exposes check-in columns (id, habit_id, user_id, date, response, answers) so friends see the same stats as the owner.
 - In-app only — no push notifications for friend activity.
 

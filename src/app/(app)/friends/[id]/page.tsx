@@ -16,22 +16,12 @@ type HabitStats = {
   earnedBadges: number[]
 }
 
-type TimeRange = '7d' | '30d' | 'all'
-
-function getCutoffDate(range: TimeRange): string | null {
-  if (range === 'all') return null
-  const d = new Date()
-  d.setDate(d.getDate() - (range === '7d' ? 7 : 30))
-  return d.toISOString().split('T')[0]
-}
-
 export default function FriendProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const supabase = createClient()
   const [id, setId] = useState<string>('')
   const [name, setName] = useState<string | null>(null)
   const [stats, setStats] = useState<HabitStats[]>([])
   const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, PopupAnswers>>({})
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { params.then(p => setId(p.id)) }, [params])
@@ -83,14 +73,12 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
   }
 
   function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {
-    const cutoff = getCutoffDate(timeRange)
     const byDate = new Map<string, number>()
 
     Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
       const idx = key.lastIndexOf('_')
       if (key.substring(0, idx) !== habitId) return
       const date = key.substring(idx + 1)
-      if (cutoff && date < cutoff) return
       const val = ans[q.label]
       if (val !== undefined && val !== '') {
         const n = parseFloat(val as string)
@@ -108,14 +96,11 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
   }
 
   function getMultiData(habitId: string, q: MultiQuestion): { option: string; count: number }[] {
-    const cutoff = getCutoffDate(timeRange)
     const counts: Record<string, number> = {}
 
     Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
       const idx = key.lastIndexOf('_')
       if (key.substring(0, idx) !== habitId) return
-      const date = key.substring(idx + 1)
-      if (cutoff && date < cutoff) return
       const val = ans[q.label]
       if (Array.isArray(val)) val.forEach(opt => { counts[opt] = (counts[opt] ?? 0) + 1 })
     })
@@ -134,8 +119,6 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
     </div>
   )
 
-  const RANGE_LABELS: Record<TimeRange, string> = { '7d': '7 days', '30d': '30 days', 'all': 'All time' }
-
   return (
     <div className="p-4">
       <div className="flex items-center justify-between mb-3">
@@ -150,20 +133,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
       )}
 
       {stats.length > 0 && (
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Per habit</p>
-          <div className="flex bg-gray-100 rounded-xl p-0.5 gap-0.5">
-            {(['7d', '30d', 'all'] as TimeRange[]).map(r => (
-              <button
-                key={r}
-                onClick={() => setTimeRange(r)}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${timeRange === r ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-              >
-                {RANGE_LABELS[r]}
-              </button>
-            ))}
-          </div>
-        </div>
+        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Per habit</p>
       )}
 
       <div className="space-y-3">
@@ -286,7 +256,6 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
                           </div>
                         ))}
                       </div>
-                      <p className="text-xs text-gray-400 mt-2 text-right">{RANGE_LABELS[timeRange]}</p>
                     </div>
                   )
                 }

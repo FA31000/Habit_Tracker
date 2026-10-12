@@ -17,19 +17,9 @@ type HabitStats = {
   earnedBadges: number[]
 }
 
-type TimeRange = '7d' | '30d' | 'all'
-
-function getCutoffDate(range: TimeRange): string | null {
-  if (range === 'all') return null
-  const d = new Date()
-  d.setDate(d.getDate() - (range === '7d' ? 7 : 30))
-  return d.toISOString().split('T')[0]
-}
-
 export default function StatsPage() {
   const [stats, setStats] = useState<HabitStats[]>([])
   const [loading, setLoading] = useState(true)
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d')
   const [expandedHabits, setExpandedHabits] = useState<Record<string, boolean>>({})
 
   // Popup answers from Supabase, keyed habitId_date
@@ -87,14 +77,12 @@ export default function StatsPage() {
   }
 
   function getNumberData(habitId: string, q: NumberQuestion): { date: string; label: string; value: number }[] {
-    const cutoff = getCutoffDate(timeRange)
     const byDate = new Map<string, number>()
 
     Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
       const idx = key.lastIndexOf('_')
       if (key.substring(0, idx) !== habitId) return
       const date = key.substring(idx + 1)
-      if (cutoff && date < cutoff) return
       const val = ans[q.label]
       if (val !== undefined && val !== '') {
         const n = parseFloat(val as string)
@@ -112,14 +100,11 @@ export default function StatsPage() {
   }
 
   function getMultiData(habitId: string, q: MultiQuestion): { option: string; count: number }[] {
-    const cutoff = getCutoffDate(timeRange)
     const counts: Record<string, number> = {}
 
     Object.entries(habitPopupAnswers).forEach(([key, ans]) => {
       const idx = key.lastIndexOf('_')
       if (key.substring(0, idx) !== habitId) return
-      const date = key.substring(idx + 1)
-      if (cutoff && date < cutoff) return
       const val = ans[q.label]
       if (Array.isArray(val)) val.forEach(opt => { counts[opt] = (counts[opt] ?? 0) + 1 })
     })
@@ -130,8 +115,6 @@ export default function StatsPage() {
   }
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
-
-  const RANGE_LABELS: Record<TimeRange, string> = { '7d': '7 days', '30d': '30 days', 'all': 'All time' }
 
   return (
     <div className="p-4">
@@ -148,21 +131,8 @@ export default function StatsPage() {
         </div>
       </div>
 
-      {/* Per-habit section header + time range switcher */}
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Per habit</p>
-        <div className="flex bg-gray-100 rounded-xl p-0.5 gap-0.5">
-          {(['7d', '30d', 'all'] as TimeRange[]).map(r => (
-            <button
-              key={r}
-              onClick={() => setTimeRange(r)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${timeRange === r ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-            >
-              {RANGE_LABELS[r]}
-            </button>
-          ))}
-        </div>
-      </div>
+      {/* Per-habit section header */}
+      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Per habit</p>
 
       <div className="space-y-3">
         {stats.map(s => {
@@ -288,7 +258,6 @@ export default function StatsPage() {
                             </div>
                           ))}
                         </div>
-                        <p className="text-xs text-gray-400 mt-2 text-right">{RANGE_LABELS[timeRange]}</p>
                       </div>
                     )
                   }
