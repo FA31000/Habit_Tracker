@@ -4,10 +4,11 @@ import { addDays, todayDate } from '@/lib/streak'
 type SupabaseClient = ReturnType<typeof createClient>
 
 // Auto-No: every blank day before today, from each active habit's first
-// check-in onwards, is saved as a "no". Existing answers are never overwritten.
+// check-in (or its start date, if later) onwards, is saved as a "no".
+// Existing answers are never overwritten.
 export async function fillMissedDays(supabase: SupabaseClient, userId: string): Promise<void> {
   const [{ data: habits }, { data: checkins }] = await Promise.all([
-    supabase.from('habits').select('id').eq('user_id', userId).eq('is_active', true),
+    supabase.from('habits').select('id, start_date').eq('user_id', userId).eq('is_active', true),
     supabase.from('checkins').select('habit_id, date').eq('user_id', userId),
   ])
 
@@ -22,7 +23,8 @@ export async function fillMissedDays(supabase: SupabaseClient, userId: string): 
   for (const h of habits ?? []) {
     const dates = datesByHabit[h.id]
     if (!dates) continue
-    const first = [...dates].sort()[0]
+    const firstCheckin = [...dates].sort()[0]
+    const first = h.start_date && h.start_date > firstCheckin ? h.start_date : firstCheckin
     for (let day = first; day < today; day = addDays(day, 1)) {
       if (!dates.has(day)) rows.push({ habit_id: h.id, user_id: userId, date: day, response: 'no' })
     }
