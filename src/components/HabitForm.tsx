@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit, PopupQuestion } from '@/lib/types'
+import { todayDate } from '@/lib/streak'
 
 type Props = {
   habit: Habit | null
@@ -15,6 +16,7 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
   const [description, setDescription] = useState(habit?.description ?? '')
   const [dollarValue, setDollarValue] = useState(habit?.dollar_value?.toString() ?? '1.00')
   const [allowedNoDays, setAllowedNoDays] = useState(habit?.allowed_no_days_per_week?.toString() ?? '0')
+  const [startDate, setStartDate] = useState(habit?.start_date ?? todayDate())
   const [saving, setSaving] = useState(false)
 
   // Popup config state
@@ -92,6 +94,7 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
       description: description.trim() || null,
       dollar_value: parseFloat(dollarValue) || 1,
       allowed_no_days_per_week: parseInt(allowedNoDays) || 0,
+      start_date: startDate || todayDate(),
       question_config,
     }
     if (habit) {
@@ -138,6 +141,15 @@ export default function HabitForm({ habit, onClose, onSaved }: Props) {
               type="number" step="0.01" min="0.01" placeholder="1.00"
               value={dollarValue} onChange={e => setDollarValue(e.target.value)} required
               className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 placeholder-gray-400 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block font-medium">Start date</label>
+            <input
+              type="date"
+              value={startDate} onChange={e => setStartDate(e.target.value)} required
+              className="w-full px-4 py-3 rounded-xl bg-gray-100 text-gray-900 border border-gray-200 focus:outline-none focus:border-emerald-600 text-base"
             />
           </div>
 

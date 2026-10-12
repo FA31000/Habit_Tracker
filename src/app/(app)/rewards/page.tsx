@@ -93,7 +93,7 @@ export default function RewardsPage() {
 
     const { data: wishlist } = await supabase.from('wishlist_items').select('*').eq('user_id', user.id).order('sort_order', { ascending: true, nullsFirst: false }).order('price', { ascending: true })
     const { data: checkins } = await supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id)
-    const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true)
+    const { data: habits } = await supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week, start_date').eq('user_id', user.id).eq('is_active', true)
     const { data: creditRows } = await supabase.from('credits').select('*').eq('user_id', user.id).order('date', { ascending: false })
 
     const cfg = await fetchUserConfig()

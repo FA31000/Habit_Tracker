@@ -22,7 +22,7 @@ export default function BalanceBadge() {
         { data: credits },
       ] = await Promise.all([
         fetchUserConfig(),
-        supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week').eq('user_id', user.id).eq('is_active', true),
+        supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week, start_date').eq('user_id', user.id).eq('is_active', true),
         supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
         supabase.from('wishlist_items').select('price').eq('user_id', user.id).eq('redeemed', true),
         supabase.from('credits').select('amount, date').eq('user_id', user.id),

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types'
-import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, loadAppConfig, type AppConfig } from '@/lib/types'
+import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, habitStarted, loadAppConfig, type AppConfig } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
@@ -97,9 +97,10 @@ export default function CheckInPage() {
 
     setAppConfig(cfg)
     const activeHabits = habitsData ?? []
+    const startedHabits = activeHabits.filter((h: Habit) => habitStarted(h, selectedDate))
 
     setStreaks(computedStreaks)
-    setHabits(applyStoredOrder(habitsData ?? []))
+    setHabits(applyStoredOrder(startedHabits))
     setBalance(dayEarnings(selectedDate, activeHabits, lists, cfg))
     const map: CheckinMap = {}
     const ansMap: Record<string, PopupAnswers> = {}
@@ -110,7 +111,7 @@ export default function CheckInPage() {
     setCheckins(map)
     setSavedPopupAnswers(ansMap)
     setFreezeUsed(freezeData?.used ?? false)
-    setDone((habitsData ?? []).every((h: Habit) => map[h.id]))
+    setDone(startedHabits.every((h: Habit) => map[h.id]))
     setLoading(false)
   }, [selectedDate, weekStart])
 

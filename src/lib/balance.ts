@@ -1,18 +1,20 @@
 import { computeHabitStreak, getWeekStart, addDays, todayDate, type StreakCheckin } from './streak'
-import { getStreakMultiplier, type AppConfig } from './types'
+import { getStreakMultiplier, habitStarted, type AppConfig } from './types'
 
-export type EarnHabit = { id: string; dollar_value: number; allowed_no_days_per_week: number }
+export type EarnHabit = { id: string; dollar_value: number; allowed_no_days_per_week: number; start_date?: string | null }
 export type CheckinsByHabit = Record<string, StreakCheckin[]>
 
 // Money earned on a single date: each "yes" pays its dollar value times the
 // habit's streak multiplier (streak measured as of that date). A perfect day —
-// every habit answered "yes" — doubles the day's total.
+// every habit answered "yes" — doubles the day's total. Habits that haven't
+// started yet on that date are ignored.
 export function dayEarnings(
   date: string,
-  habits: EarnHabit[],
+  allHabits: EarnHabit[],
   checkinsByHabit: CheckinsByHabit,
   cfg: AppConfig,
 ): number {
+  const habits = allHabits.filter(h => habitStarted(h, date))
   let earned = 0
   for (const h of habits) {
     const list = checkinsByHabit[h.id] ?? []

@@ -34,6 +34,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - Active/inactive toggle
   - **Allowed "No" days per week** (default: 0) — the streak continues even if you answer No, as long as you stay within this limit. Example: "Did I eat healthy?" set to 2 means you can answer No twice a week without breaking your streak.
   - **Description** (optional) — a personal note about why this habit matters. Only visible and editable on the Habits page.
+  - **Start date** (defaults to today, editable when creating or editing) — the first day the habit applies. On days before it, the habit is hidden on the check-in page and ignored for earnings and the perfect-day double (`habitStarted()` in `src/lib/types.ts`). Stored in `habits.start_date` (migration: `supabase-start-date.sql`); existing habits were given their creation day, or their first check-in if earlier.
 
 ### 2. Daily Check-In
 - One screen per day: list of all habits, each with two buttons: **Yes** and **No**
@@ -67,7 +68,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - 🟡 90+ days: 2.5x
   - 🩶 180+ days: 3x
   - 🏆 365+ days: 4x
-- **Perfect day double**: on any day where every active habit is answered Yes (no No, no Freeze, none left blank), that day's total winnings are multiplied by 2. Applied across all days, so past perfect days count too.
+- **Perfect day double**: on any day where every active habit that has started by that day is answered Yes (no No, no Freeze, none left blank), that day's total winnings are multiplied by 2. Applied across all days, so past perfect days count too.
 - The streak multiplier for a day uses the streak **as of that day**, so each day locks in its own earnings and past days are not re-priced when the streak later grows.
 - **Weekly no-freeze bonus**: for every week (Mon–Sun) that has finished — its Sunday is today or earlier — since the user's first check-in, if **no freeze was used** that week, the user earns a flat bonus (default **S$10**, set by the admin, applies to everyone). A week is judged only by whether a freeze was used, so even a week with no activity counts. The current in-progress week (its Sunday still in the future) is excluded so the bonus isn't awarded then clawed back. Computed by `freezeBonusTotal` in `src/lib/balance.ts` and folded into `totalEarned`, so it flows into the top green balance and the Rewards balance automatically. When you tap **Save Check-In on a Sunday** and didn't use a freeze that week, the check-in-complete screen shows a card: "❄️ No freeze used this week — you earned a S$10 bonus!".
 - **One shared money calculation** lives in `src/lib/balance.ts` (`dayEarnings` for a single date, `totalEarned` for all dates), used by both the top badge and the home page so they can never disagree.
@@ -176,7 +177,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 ## Database Tables (Supabase)
 
 - `users` — auth (handled by Supabase Auth)
-- `habits` — id, user_id, name, description (optional text), dollar_value, is_active, allowed_no_days_per_week (default 0), created_at, question_config (jsonb, optional — the habit's check-in popup questions)
+- `habits` — id, user_id, name, description (optional text), dollar_value, is_active, allowed_no_days_per_week (default 0), created_at, start_date (date, first day the habit applies), question_config (jsonb, optional — the habit's check-in popup questions)
 - `checkins` — id, habit_id, user_id, date, response ('yes' | 'no' | 'freeze'), answers (jsonb, optional — the popup answers for that day)
 - `streaks` — id, habit_id, user_id, current_streak, longest_streak
 - `freeze_tokens` — id, user_id, week_start, used (boolean)
@@ -259,6 +260,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 
 ## History Log
 
+- **2026-10-12** — Added a **start date** to habits. New/Edit Habit form has a "Start date" field (defaults to today). Before that date the habit is hidden on the check-in page and doesn't count for earnings or perfect days — this also stops a newly added habit from cancelling the perfect-day double on all past days. New column `habits.start_date` via `supabase-start-date.sql` (existing habits backfilled to their creation day, or first check-in if earlier). Changed: `src/lib/types.ts`, `src/lib/balance.ts`, `src/components/HabitForm.tsx`, `src/app/(app)/page.tsx`, `src/components/BalanceBadge.tsx`, `src/app/(app)/rewards/page.tsx`.
 - **2026-08-13 (latest)** — Removed the credit **type tag**. Every credit is money from selling something, so the Sold / Gift / Cashback / Other picker only ever had one answer. Dropped the four-button row from the credit form, the type label from each ledger row (which now shows just the date), the `kind` column from the `credits` table (`alter table credits drop column if exists kind;`, added to `supabase-credits.sql`), and `CreditKind` / `CREDIT_KINDS` from `src/lib/types.ts`. Changed: `src/lib/types.ts`, `src/app/(app)/rewards/page.tsx`, `supabase-credits.sql`.
 - **2026-08-13 (latest)** — Merged the two add buttons into one. The green "+ Add" pill in the Rewards page header now opens a single "Add" modal carrying a **Reward | Credit** toggle at the top (new `AddTypeToggle`); switching swaps to the other form. The separate "+ Add" button on the credits section was removed, so the page has exactly one way to create anything. The toggle only appears when adding — editing keeps its "Edit Reward" / "Edit Credit" title and no type switch. Changed: `src/app/(app)/rewards/page.tsx`.
 - **2026-08-13 (later)** — Aligned the reward and credit flows so they read as one feature. Rewards previously had **two** near-identical modals (Add / Edit) driven by eight state variables; they now use a **single** modal and one form-state object, exactly like credits — same fields, same styling, same Cancel / Save buttons (the add modal's button said "Add", now both say "Save"). Deletion matched up too: the confirm text went from "Remove this item?" to "Remove this reward?" to pair with "Remove this credit?", and deleting a reward now reloads from the database and refreshes the header badge instead of only patching local state. Also made the credits ledger **expanded by default** rather than collapsed. Net: ~45 fewer lines in `src/app/(app)/rewards/page.tsx`, no behaviour lost.

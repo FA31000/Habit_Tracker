@@ -13,7 +13,13 @@ export type Habit = {
   is_active: boolean
   allowed_no_days_per_week: number
   created_at: string
+  start_date: string | null
   question_config: HabitPopupConfig | null
+}
+
+// Whether a habit applies on a date (it has started by then).
+export function habitStarted(habit: { start_date?: string | null }, date: string): boolean {
+  return !habit.start_date || habit.start_date <= date
 }
 
 export type Checkin = {
