@@ -239,7 +239,7 @@ export default function CheckInPage() {
       const next = { ...p }
       delete next[habitId]
       return next
-    }), 1700)
+    }), 2900)
   }
 
   async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
@@ -410,7 +410,7 @@ export default function CheckInPage() {
                 <span
                   key={floats[habit.id].key}
                   className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap drop-shadow-sm"
-                  style={{ animation: 'float-up 1.6s ease-out forwards' }}
+                  style={{ animation: 'float-up 2.8s ease-out forwards' }}
                 >
                   <span className="text-lg font-extrabold text-emerald-600 leading-tight">{floats[habit.id].money}</span>
                   <span className="text-sm font-bold text-orange-500 leading-tight">🔥 {floats[habit.id].streak}-day streak</span>
