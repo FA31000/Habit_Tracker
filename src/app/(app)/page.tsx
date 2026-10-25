@@ -6,13 +6,17 @@ import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types
 import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, habitStarted, loadAppConfig, type AppConfig } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
-import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
+import { computeHabitStreak, getWeekStart, successRate, type StreakCheckin } from '@/lib/streak'
 import { dayEarnings, isPerfectDay } from '@/lib/balance'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { fillMissedDays } from '@/lib/autoNo'
-import Confetti from '@/components/Confetti'
+import CelebrationOverlay from '@/components/CelebrationOverlay'
+import { buildCelebration, type Celebration, type NewBadge } from '@/lib/celebration'
+import { fetchMoneySnapshot } from '@/lib/moneySnapshot'
+import { buzz, CELEBRATION_BUZZ } from '@/lib/haptics'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze' | 'na'>
+type FloatLine = { text: string; className: string }
 
 const MIN_DATE = '2026-06-27'
 
@@ -41,11 +45,15 @@ export default function CheckInPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
-  const [showConfetti, setShowConfetti] = useState(false)
+  const [celebration, setCelebration] = useState<Celebration | null>(null)
+  // Balance after the last Save Check-In, for the summary card under the list.
+  const [savedBalance, setSavedBalance] = useState<number | null>(null)
+  // Lines floating up from a card right after answering Yes / No / Freeze:
+  // money, streak and success rate.
+  const [floats, setFloats] = useState<Record<string, { key: number; lines: FloatLine[] }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
-  const [streaks, setStreaks] = useState<Record<string, number>>({})
   const [habitCheckinLists, setHabitCheckinLists] = useState<Record<string, StreakCheckin[]>>({})
   const [appConfig, setAppConfig] = useState<AppConfig>(loadAppConfig())
 
@@ -94,13 +102,11 @@ export default function CheckInPage() {
       checkinsByHabit[c.habit_id][c.date] = c.response
     })
 
-    const computedStreaks: Record<string, number> = {}
     const lists: Record<string, StreakCheckin[]> = {}
     ;(habitsData ?? []).forEach((h: Habit) => {
       const byDate = checkinsByHabit[h.id] ?? {}
       const list = Object.entries(byDate).map(([date, response]) => ({ date, response: response as 'yes' | 'no' | 'freeze' | 'na' }))
       lists[h.id] = list
-      computedStreaks[h.id] = computeHabitStreak(list, h.allowed_no_days_per_week, selectedDate).current
     })
     setHabitCheckinLists(lists)
 
@@ -108,7 +114,6 @@ export default function CheckInPage() {
     const activeHabits = habitsData ?? []
     const startedHabits = activeHabits.filter((h: Habit) => habitStarted(h, selectedDate))
 
-    setStreaks(computedStreaks)
     setHabits(applyStoredOrder(startedHabits))
     setBalance(dayEarnings(selectedDate, activeHabits, lists, cfg))
     const map: CheckinMap = {}
@@ -124,7 +129,7 @@ export default function CheckInPage() {
     setLoading(false)
   }, [selectedDate, weekStart])
 
-  useEffect(() => { setLoading(true); setCheckins({}); load() }, [load])
+  useEffect(() => { setLoading(true); setCheckins({}); setSavedBalance(null); load() }, [load])
 
   // One-time migration of old localStorage popup data into Supabase, then reload.
   useEffect(() => {
@@ -218,8 +223,63 @@ export default function CheckInPage() {
     const config = getPopupConfig(pendingPopupHabitId)
     const showQuestions = !!config && config.trigger === pendingResponse
     const finalResponse = pendingResponse === 'no' && popupFreeze ? 'freeze' : pendingResponse
+    const habit = habits.find(h => h.id === pendingPopupHabitId)
+    // Worked out before saving, while checkins still holds the previous answer.
+    const lines = habit && checkins[habit.id] !== finalResponse ? floatLines(habit, finalResponse) : null
     await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
     closePopup()
+    if (habit && lines) showFloat(habit.id, lines, finalResponse === 'yes')
+  }
+
+  // What changing the day's answer to `response` does: money (Yes only), the
+  // streak (kept, broken or protected) and the success rate with its change.
+  function floatLines(habit: Habit, response: 'yes' | 'no' | 'freeze'): FloatLine[] {
+    const prev = checkins[habit.id] ?? null
+    const before = projectStreak(habit, prev)
+    const after = projectStreak(habit, response)
+    const lines: FloatLine[] = []
+    if (response === 'yes') {
+      const pay = habit.dollar_value * getStreakMultiplier(after, appConfig)
+      lines.push({ text: `+${appConfig.currencySymbol}${pay.toFixed(2)}`, className: 'text-lg font-extrabold text-emerald-600' })
+      lines.push({ text: `🔥 ${after}-day streak`, className: 'text-sm font-bold text-orange-500' })
+    } else if (response === 'freeze') {
+      lines.push({ text: `❄️ ${after}-day streak protected`, className: 'text-base font-extrabold text-blue-500' })
+    } else if (after < before) {
+      lines.push({ text: `💔 ${before}-day streak broken`, className: 'text-base font-extrabold text-red-500' })
+    } else if (after === 0) {
+      // Over the allowance with no streak running: nothing to break.
+      lines.push({ text: '❌ No streak running', className: 'text-base font-extrabold text-red-500' })
+    } else {
+      const left = Math.max(0, nosLeftThisWeek(habit) - 1)
+      lines.push({ text: `🟠 Allowed No · streak ${after} days`, className: 'text-base font-extrabold text-orange-500' })
+      lines.push({ text: `${left} No${left === 1 ? '' : 's'} left this week`, className: 'text-xs font-bold text-gray-500' })
+    }
+    lines.push({ text: rateChange(habit, prev, response), className: 'text-xs font-bold text-gray-500' })
+    return lines
+  }
+
+  // Success rate after the new answer, and how much it moved compared with the
+  // day's previous answer (or no answer), e.g. "📈 60% (+0.3%)". The change is
+  // left off when there is none (a freeze counts as neither Yes nor No).
+  function rateChange(habit: Habit, prev: CheckinMap[string] | null, response: CheckinMap[string]): string {
+    const others = (habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate)
+    const before = successRate(prev ? [...others, { date: selectedDate, response: prev }] : others)
+    const after = successRate([...others, { date: selectedDate, response }])
+    const delta = after - before
+    if (Math.abs(delta) < 0.05) return `📊 ${Math.round(after)}%`
+    return `${delta > 0 ? '📈' : '📉'} ${Math.round(after)}% (${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)}%)`
+  }
+
+  function showFloat(habitId: string, lines: FloatLine[], vibrate: boolean) {
+    const key = Date.now()
+    if (vibrate) buzz(25)
+    setFloats(p => ({ ...p, [habitId]: { key, lines } }))
+    setTimeout(() => setFloats(p => {
+      if (p[habitId]?.key !== key) return p
+      const next = { ...p }
+      delete next[habitId]
+      return next
+    }), 2900)
   }
 
   async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
@@ -264,6 +324,9 @@ export default function CheckInPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
     const earned: string[] = []
+    const earnedBadges: NewBadge[] = []
+    const streakAfter: Record<string, number> = {}
+    const listsAfter: Record<string, StreakCheckin[]> = { ...habitCheckinLists }
     const answered = habits.filter(h => checkins[h.id])
     const ids = answered.map(h => h.id)
     // Fetch everything at once instead of one habit at a time.
@@ -278,6 +341,8 @@ export default function CheckInPage() {
     for (const [i, habit] of answered.entries()) {
       const list = (checkinResults[i].data ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' }))
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, selectedDate)
+      listsAfter[habit.id] = list
+      streakAfter[habit.id] = current
       const streakData = (streakRows ?? []).find((s: { habit_id: string }) => s.habit_id === habit.id)
       const newLongest = Math.max(longest, streakData?.longest_streak ?? 0)
       if (streakData) {
@@ -290,12 +355,15 @@ export default function CheckInPage() {
         if (newLongest >= milestone && !have.has(milestone)) {
           newBadgeRows.push({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
           earned.push(`${habit.name} — ${milestone}-day badge!`)
+          earnedBadges.push({ habitId: habit.id, habitName: habit.name, milestone })
         }
       }
     }
     const perfectDay = isPerfectDay(habits.map(h => checkins[h.id]))
-    // Save streaks, badges and perfect day all at once.
-    await Promise.all([
+    // Save streaks, badges and perfect day all at once, and read the new
+    // balance alongside (check-ins are already saved, so it is up to date).
+    const [snapshot] = await Promise.all([
+      fetchMoneySnapshot(),
       ...streakUpdates,
       newStreakRows.length > 0 && supabase.from('streaks').insert(newStreakRows),
       newBadgeRows.length > 0 && supabase.from('badges').upsert(newBadgeRows),
@@ -308,7 +376,28 @@ export default function CheckInPage() {
     setNewBadges(earned)
     setSaving(false)
     setDone(true)
-    if (perfectDay) setShowConfetti(true)
+    if (snapshot) {
+      // The header badge refetches on this, so it matches the celebration.
+      window.dispatchEvent(new StorageEvent('storage', { key: 'balance' }))
+      setSavedBalance(snapshot.balance)
+      // Only today gets the full celebration; a backfilled day just gets the
+      // summary card below.
+      if (selectedDate === today) {
+        const cel = buildCelebration({
+          date: selectedDate,
+          habits: habits.map(h => ({ id: h.id, name: h.name, description: h.description, response: checkins[h.id], streak: streakAfter[h.id] ?? 0 })),
+          newBadges: earnedBadges,
+          perfect: perfectDay,
+          earned: dayEarnings(selectedDate, habits, listsAfter, snapshot.cfg),
+          balanceAfter: snapshot.balance,
+          rewards: snapshot.rewards,
+          ratePerDay: snapshot.ratePerDay,
+          cfg: snapshot.cfg,
+        })
+        setCelebration(cel)
+        buzz(CELEBRATION_BUZZ[cel.level])
+      }
+    }
     await load()
   }
 
@@ -319,7 +408,7 @@ export default function CheckInPage() {
 
   return (
     <div className="p-3">
-      {showConfetti && <Confetti onDone={() => setShowConfetti(false)} />}
+      {celebration && <CelebrationOverlay data={celebration} symbol={appConfig.currencySymbol} onClose={() => setCelebration(null)} />}
       <div className="flex items-center justify-between mb-2 mt-1">
         <button
           onClick={() => { setSelectedDate(prev => addDays(prev, -1)); setDone(false) }}
@@ -346,19 +435,33 @@ export default function CheckInPage() {
       <div className="space-y-1.5">
         {habits.map(habit => {
           const response = checkins[habit.id]
-          const streak = streaks[habit.id] ?? 0
+          // Live: follows the answer as it's tapped, not just the last load.
+          const streak = projectStreak(habit, response ?? null)
           const badge = getStreakBadge(streak)
+          // What a Yes on this day pays (the Yes itself can reach a new badge).
+          const yesPay = habit.dollar_value * getStreakMultiplier(projectStreak(habit, 'yes'), appConfig)
           return (
             <div
               key={habit.id}
-              className={`rounded-xl px-3 py-2 shadow-sm ${badge ? '' : 'bg-white ring-1 ring-black/5'}`}
+              className={`relative rounded-xl px-3 py-2 shadow-sm ${badge ? '' : 'bg-white ring-1 ring-black/5'}`}
               style={badge ? { backgroundColor: badge.color + '22' } : undefined}
             >
+              {floats[habit.id] && (
+                <span
+                  key={floats[habit.id].key}
+                  className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap drop-shadow-sm"
+                  style={{ animation: 'float-up 2.8s ease-out forwards' }}
+                >
+                  {floats[habit.id].lines.map((l, i) => (
+                    <span key={i} className={`leading-tight ${l.className}`}>{l.text}</span>
+                  ))}
+                </span>
+              )}
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-500">{streak} {streak === 1 ? 'day' : 'days'}</span>
-                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{(habit.dollar_value * getStreakMultiplier(streak, appConfig)).toFixed(2)}</span>
+                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{yesPay.toFixed(2)}</span>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -400,6 +503,9 @@ export default function CheckInPage() {
             <div className="text-3xl mb-2">🎉</div>
             <p className="text-emerald-700 font-bold text-base">Check-in complete!</p>
             <p className="text-gray-500 text-sm mt-1">{selectedDate === today ? 'Earned today' : 'Earned this day'}: <span className="text-emerald-700 font-bold">{appConfig.currencySymbol}{balance.toFixed(2)}</span></p>
+            {savedBalance !== null && (
+              <p className="text-gray-500 text-sm mt-0.5">Balance now: <span className={`font-bold ${savedBalance < 0 ? 'text-red-500' : 'text-gray-800'}`}>{savedBalance < 0 ? '−' : ''}{appConfig.currencySymbol}{Math.abs(savedBalance).toFixed(2)}</span></p>
+            )}
           </div>
           {showFreezeBonus && (
             <div className="bg-sky-50 ring-1 ring-sky-200 rounded-2xl p-4 text-center text-sm text-sky-700 font-medium">

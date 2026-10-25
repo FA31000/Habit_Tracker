@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { WishlistItem, Credit } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
 import { addDays, todayDate } from '@/lib/streak'
-import { totalEarned, dayEarnings, creditsTotal, availableBalance, type CheckinsByHabit } from '@/lib/balance'
+import { totalEarned, dayEarnings, creditsTotal, availableBalance, ratePerDay, type CheckinsByHabit } from '@/lib/balance'
 import RewardForecast from '@/components/RewardForecast'
 
 // Legacy: the order used to live here, per browser. It now lives on the account
@@ -79,7 +79,7 @@ export default function RewardsPage() {
   const [spentTotal, setSpentTotal] = useState(0)
   const [showCredits, setShowCredits] = useState(true)
   const [creditForm, setCreditForm] = useState<{ id: string | null; description: string; amount: string; date: string } | null>(null)
-  const [ratePerDay, setRatePerDay] = useState(0)
+  const [rate, setRate] = useState(0)
   const [today, setToday] = useState('')
   const [history, setHistory] = useState<{ date: string; value: number }[]>([])
   const [loading, setLoading] = useState(true)
@@ -108,20 +108,7 @@ export default function RewardsPage() {
     const creditList = (creditRows ?? []) as Credit[]
     const credit = creditsTotal(creditList)
 
-    // Run rate: average earnings per day over the last 14 full days (today
-    // excluded, days before the first ever check-in excluded).
-    const firstDate = (checkins ?? []).map(c => c.date).sort()[0]
-    let rateSum = 0
-    let rateDays = 0
-    if (firstDate) {
-      for (let i = 1; i <= 14; i++) {
-        const d = addDays(today, -i)
-        if (d < firstDate) break
-        rateSum += dayEarnings(d, habits ?? [], checkinsByHabit, cfg)
-        rateDays++
-      }
-    }
-    setRatePerDay(rateDays > 0 ? rateSum / rateDays : 0)
+    setRate(ratePerDay(habits ?? [], checkinsByHabit, cfg, today))
     setToday(today)
 
     // Balance at the end of each of the past 4 weeks plus today, for the
@@ -298,7 +285,7 @@ export default function RewardsPage() {
         </div>
       </div>
 
-      <RewardForecast balance={balance} ratePerDay={ratePerDay} items={available} today={today} history={history} />
+      <RewardForecast balance={balance} ratePerDay={rate} items={available} today={today} history={history} />
 
       {available.length === 0 && (
         <p className="text-gray-400 text-center mt-8 text-sm">No rewards yet. Add something to save up for!</p>

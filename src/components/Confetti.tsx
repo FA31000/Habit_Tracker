@@ -4,14 +4,14 @@ import { useEffect, useState } from 'react'
 
 const COLORS = ['#34d399', '#fbbf24', '#60a5fa', '#f87171', '#a78bfa', '#f472b6']
 
-export default function Confetti({ onDone }: { onDone?: () => void }) {
+export default function Confetti({ onDone, count = 90, colors = COLORS }: { onDone?: () => void; count?: number; colors?: string[] }) {
   const [pieces] = useState(() =>
-    Array.from({ length: 90 }, (_, i) => ({
+    Array.from({ length: count }, (_, i) => ({
       id: i,
       left: Math.random() * 100,
       delay: Math.random() * 0.4,
       duration: 2 + Math.random() * 1.5,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      color: colors[Math.floor(Math.random() * colors.length)],
       size: 6 + Math.random() * 6,
     }))
   )
