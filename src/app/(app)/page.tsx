@@ -280,7 +280,7 @@ export default function CheckInPage() {
       const next = { ...p }
       delete next[habitId]
       return next
-    }), 2900)
+    }), 4100)
   }
 
   async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
@@ -451,7 +451,7 @@ export default function CheckInPage() {
                 <span
                   key={floats[habit.id].key}
                   className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap drop-shadow-sm"
-                  style={{ animation: 'float-up 2.8s ease-out forwards' }}
+                  style={{ animation: 'float-up 4s ease-out forwards' }}
                 >
                   {floats[habit.id].lines.map((l, i) => (
                     <span key={i} className={`leading-tight ${l.className}`}>{l.text}</span>
