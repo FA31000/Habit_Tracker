@@ -451,7 +451,7 @@ export default function CheckInPage() {
               {floats[habit.id] && (
                 <span
                   key={floats[habit.id].key}
-                  className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap drop-shadow-sm"
+                  className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap rounded-xl bg-white/85 backdrop-blur-sm px-3 py-1.5 shadow-md ring-1 ring-black/5"
                   style={{ animation: 'float-up 4s ease-out forwards' }}
                 >
                   {floats[habit.id].lines.map((l, i) => (
