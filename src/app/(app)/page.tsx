@@ -16,6 +16,7 @@ import { fetchMoneySnapshot } from '@/lib/moneySnapshot'
 import { buzz, CELEBRATION_BUZZ } from '@/lib/haptics'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze' | 'na'>
+type FloatLine = { text: string; className: string }
 
 const MIN_DATE = '2026-06-27'
 
@@ -47,8 +48,9 @@ export default function CheckInPage() {
   const [celebration, setCelebration] = useState<Celebration | null>(null)
   // Balance after the last Save Check-In, for the summary card under the list.
   const [savedBalance, setSavedBalance] = useState<number | null>(null)
-  // "+S$X" and the new streak floating up from a card right after tapping Yes.
-  const [floats, setFloats] = useState<Record<string, { key: number; money: string; streak: number; rate: string }>>({})
+  // Lines floating up from a card right after answering Yes / No / Freeze:
+  // money, streak and success rate.
+  const [floats, setFloats] = useState<Record<string, { key: number; lines: FloatLine[] }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
@@ -222,28 +224,56 @@ export default function CheckInPage() {
     const showQuestions = !!config && config.trigger === pendingResponse
     const finalResponse = pendingResponse === 'no' && popupFreeze ? 'freeze' : pendingResponse
     const habit = habits.find(h => h.id === pendingPopupHabitId)
-    const newYes = !!habit && finalResponse === 'yes' && checkins[habit.id] !== 'yes'
-    const newStreak = newYes ? projectStreak(habit, 'yes') : 0
-    const pay = newYes ? habit.dollar_value * getStreakMultiplier(newStreak, appConfig) : 0
+    // Worked out before saving, while checkins still holds the previous answer.
+    const lines = habit && checkins[habit.id] !== finalResponse ? floatLines(habit, finalResponse) : null
     await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
     closePopup()
-    if (newYes) showFloat(habit.id, `+${appConfig.currencySymbol}${pay.toFixed(2)}`, newStreak, rateChange(habit))
+    if (habit && lines) showFloat(habit.id, lines, finalResponse === 'yes')
   }
 
-  // Success rate after a Yes on selectedDate, and how much that Yes moved it
-  // compared with the day's previous answer (or no answer), e.g. "60% (+0.3%)".
-  function rateChange(habit: Habit): string {
+  // What changing the day's answer to `response` does: money (Yes only), the
+  // streak (kept, broken or protected) and the success rate with its change.
+  function floatLines(habit: Habit, response: 'yes' | 'no' | 'freeze'): FloatLine[] {
+    const prev = checkins[habit.id] ?? null
+    const before = projectStreak(habit, prev)
+    const after = projectStreak(habit, response)
+    const lines: FloatLine[] = []
+    if (response === 'yes') {
+      const pay = habit.dollar_value * getStreakMultiplier(after, appConfig)
+      lines.push({ text: `+${appConfig.currencySymbol}${pay.toFixed(2)}`, className: 'text-lg font-extrabold text-emerald-600' })
+      lines.push({ text: `🔥 ${after}-day streak`, className: 'text-sm font-bold text-orange-500' })
+    } else if (response === 'freeze') {
+      lines.push({ text: `❄️ ${after}-day streak protected`, className: 'text-base font-extrabold text-blue-500' })
+    } else if (after < before) {
+      lines.push({ text: `💔 ${before}-day streak broken`, className: 'text-base font-extrabold text-red-500' })
+    } else if (after === 0) {
+      // Over the allowance with no streak running: nothing to break.
+      lines.push({ text: '❌ No streak running', className: 'text-base font-extrabold text-red-500' })
+    } else {
+      const left = Math.max(0, nosLeftThisWeek(habit) - 1)
+      lines.push({ text: `🟠 Allowed No · streak ${after} days`, className: 'text-base font-extrabold text-orange-500' })
+      lines.push({ text: `${left} No${left === 1 ? '' : 's'} left this week`, className: 'text-xs font-bold text-gray-500' })
+    }
+    lines.push({ text: rateChange(habit, prev, response), className: 'text-xs font-bold text-gray-500' })
+    return lines
+  }
+
+  // Success rate after the new answer, and how much it moved compared with the
+  // day's previous answer (or no answer), e.g. "📈 60% (+0.3%)". The change is
+  // left off when there is none (a freeze counts as neither Yes nor No).
+  function rateChange(habit: Habit, prev: CheckinMap[string] | null, response: CheckinMap[string]): string {
     const others = (habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate)
-    const prev = checkins[habit.id]
     const before = successRate(prev ? [...others, { date: selectedDate, response: prev }] : others)
-    const after = successRate([...others, { date: selectedDate, response: 'yes' }])
-    return `${Math.round(after)}% (+${(after - before).toFixed(1)}%)`
+    const after = successRate([...others, { date: selectedDate, response }])
+    const delta = after - before
+    if (Math.abs(delta) < 0.05) return `📊 ${Math.round(after)}%`
+    return `${delta > 0 ? '📈' : '📉'} ${Math.round(after)}% (${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)}%)`
   }
 
-  function showFloat(habitId: string, money: string, streak: number, rate: string) {
+  function showFloat(habitId: string, lines: FloatLine[], vibrate: boolean) {
     const key = Date.now()
-    buzz(25)
-    setFloats(p => ({ ...p, [habitId]: { key, money, streak, rate } }))
+    if (vibrate) buzz(25)
+    setFloats(p => ({ ...p, [habitId]: { key, lines } }))
     setTimeout(() => setFloats(p => {
       if (p[habitId]?.key !== key) return p
       const next = { ...p }
@@ -422,9 +452,9 @@ export default function CheckInPage() {
                   className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap drop-shadow-sm"
                   style={{ animation: 'float-up 2.8s ease-out forwards' }}
                 >
-                  <span className="text-lg font-extrabold text-emerald-600 leading-tight">{floats[habit.id].money}</span>
-                  <span className="text-sm font-bold text-orange-500 leading-tight">🔥 {floats[habit.id].streak}-day streak</span>
-                  <span className="text-xs font-bold text-gray-500 leading-tight">📈 {floats[habit.id].rate}</span>
+                  {floats[habit.id].lines.map((l, i) => (
+                    <span key={i} className={`leading-tight ${l.className}`}>{l.text}</span>
+                  ))}
                 </span>
               )}
               <div className="flex items-center justify-between mb-1.5">
