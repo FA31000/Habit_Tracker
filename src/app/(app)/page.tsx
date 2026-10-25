@@ -47,12 +47,11 @@ export default function CheckInPage() {
   const [celebration, setCelebration] = useState<Celebration | null>(null)
   // Balance after the last Save Check-In, for the summary card under the list.
   const [savedBalance, setSavedBalance] = useState<number | null>(null)
-  // "+S$X" floating up from a card right after tapping Yes.
-  const [floats, setFloats] = useState<Record<string, { key: number; text: string }>>({})
+  // "+S$X" and the new streak floating up from a card right after tapping Yes.
+  const [floats, setFloats] = useState<Record<string, { key: number; money: string; streak: number }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
-  const [streaks, setStreaks] = useState<Record<string, number>>({})
   const [habitCheckinLists, setHabitCheckinLists] = useState<Record<string, StreakCheckin[]>>({})
   const [appConfig, setAppConfig] = useState<AppConfig>(loadAppConfig())
 
@@ -101,13 +100,11 @@ export default function CheckInPage() {
       checkinsByHabit[c.habit_id][c.date] = c.response
     })
 
-    const computedStreaks: Record<string, number> = {}
     const lists: Record<string, StreakCheckin[]> = {}
     ;(habitsData ?? []).forEach((h: Habit) => {
       const byDate = checkinsByHabit[h.id] ?? {}
       const list = Object.entries(byDate).map(([date, response]) => ({ date, response: response as 'yes' | 'no' | 'freeze' | 'na' }))
       lists[h.id] = list
-      computedStreaks[h.id] = computeHabitStreak(list, h.allowed_no_days_per_week, selectedDate).current
     })
     setHabitCheckinLists(lists)
 
@@ -115,7 +112,6 @@ export default function CheckInPage() {
     const activeHabits = habitsData ?? []
     const startedHabits = activeHabits.filter((h: Habit) => habitStarted(h, selectedDate))
 
-    setStreaks(computedStreaks)
     setHabits(applyStoredOrder(startedHabits))
     setBalance(dayEarnings(selectedDate, activeHabits, lists, cfg))
     const map: CheckinMap = {}
@@ -227,22 +223,23 @@ export default function CheckInPage() {
     const finalResponse = pendingResponse === 'no' && popupFreeze ? 'freeze' : pendingResponse
     const habit = habits.find(h => h.id === pendingPopupHabitId)
     const newYes = !!habit && finalResponse === 'yes' && checkins[habit.id] !== 'yes'
-    const pay = newYes ? habit.dollar_value * getStreakMultiplier(projectStreak(habit, 'yes'), appConfig) : 0
+    const newStreak = newYes ? projectStreak(habit, 'yes') : 0
+    const pay = newYes ? habit.dollar_value * getStreakMultiplier(newStreak, appConfig) : 0
     await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
     closePopup()
-    if (newYes) showFloat(habit.id, `+${appConfig.currencySymbol}${pay.toFixed(2)}`)
+    if (newYes) showFloat(habit.id, `+${appConfig.currencySymbol}${pay.toFixed(2)}`, newStreak)
   }
 
-  function showFloat(habitId: string, text: string) {
+  function showFloat(habitId: string, money: string, streak: number) {
     const key = Date.now()
     buzz(25)
-    setFloats(p => ({ ...p, [habitId]: { key, text } }))
+    setFloats(p => ({ ...p, [habitId]: { key, money, streak } }))
     setTimeout(() => setFloats(p => {
       if (p[habitId]?.key !== key) return p
       const next = { ...p }
       delete next[habitId]
       return next
-    }), 1300)
+    }), 1700)
   }
 
   async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
@@ -398,8 +395,11 @@ export default function CheckInPage() {
       <div className="space-y-1.5">
         {habits.map(habit => {
           const response = checkins[habit.id]
-          const streak = streaks[habit.id] ?? 0
+          // Live: follows the answer as it's tapped, not just the last load.
+          const streak = projectStreak(habit, response ?? null)
           const badge = getStreakBadge(streak)
+          // What a Yes on this day pays (the Yes itself can reach a new badge).
+          const yesPay = habit.dollar_value * getStreakMultiplier(projectStreak(habit, 'yes'), appConfig)
           return (
             <div
               key={habit.id}
@@ -409,17 +409,18 @@ export default function CheckInPage() {
               {floats[habit.id] && (
                 <span
                   key={floats[habit.id].key}
-                  className="pointer-events-none absolute left-1/2 top-1 z-10 text-lg font-extrabold text-emerald-600 drop-shadow-sm"
-                  style={{ animation: 'float-up 1.2s ease-out forwards' }}
+                  className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap drop-shadow-sm"
+                  style={{ animation: 'float-up 1.6s ease-out forwards' }}
                 >
-                  {floats[habit.id].text}
+                  <span className="text-lg font-extrabold text-emerald-600 leading-tight">{floats[habit.id].money}</span>
+                  <span className="text-sm font-bold text-orange-500 leading-tight">🔥 {floats[habit.id].streak}-day streak</span>
                 </span>
               )}
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-gray-500">{streak} {streak === 1 ? 'day' : 'days'}</span>
-                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{(habit.dollar_value * getStreakMultiplier(streak, appConfig)).toFixed(2)}</span>
+                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{yesPay.toFixed(2)}</span>
                 </div>
               </div>
               <div className="flex gap-2">
