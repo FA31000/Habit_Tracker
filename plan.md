@@ -18,7 +18,9 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 ### 1. Habits
 - New accounts start empty — no default habits. Each user creates their own.
 - User can add, edit, and delete habits
-- Up/down arrow buttons on each habit to reorder; order persisted in localStorage
+- Up/down arrow buttons on each habit to reorder, saved to the account in `habits.sort_order` (migration: `supabase-habit-order.sql`), so the order is the same on every device. Habits are loaded ordered by `sort_order` (nulls last), then `created_at`, on the Today, Habits, Stats and friend stats pages — a brand new habit has no position yet, so it lands at the bottom. Moving one renumbers every habit 0…n.
+  - The old browser-only order (`habit_order` in localStorage) is lifted onto the account once, on first load, and only when no habit has a `sort_order` yet — so an order already set on another device wins.
+  - `public_habits` also exposes `sort_order`, so friends see your habits in your order.
 - **Dynamic app icon color** (Android home screen) changes based on your longest active streak, like Duolingo:
   - ⚫ Default — no streak yet
   - 🔘 Grey — 5+ day streak
@@ -278,6 +280,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 
 ## History Log
 
+- **2026-10-25** — Habit order now saved on the **account** instead of the browser, so it is the same on every device and friends see it too. New column `habits.sort_order` (and on the `public_habits` view) via `supabase-habit-order.sql` — **must be run before deploying**, since every habits query now orders by it. The old `habit_order` localStorage order is copied onto the account once. Changed: `src/lib/habitOrder.ts`, `src/lib/types.ts`, `src/app/(app)/page.tsx`, `src/app/(app)/habits/page.tsx`, `src/app/(app)/stats/page.tsx`, `src/app/(app)/friends/[id]/page.tsx`.
 - **2026-10-12 (latest)** — Stats page and friend profile page: added a row of Yes / No / Freeze / NA counts above Streak · Best · Rate. Rate changed from Yes ÷ all logged days to **Yes ÷ (Yes + No)** (Freeze and NA left out). New `responseCounts` in `src/lib/streak.ts`.
 - **2026-10-12** — Added **auto-No**: on app open, every blank past day (from each active habit's first check-in up to yesterday) is saved as a "no". First run backfilled the old gaps. Streaks and balance verified unchanged (S$779.28 before and after). New `src/lib/autoNo.ts`, called once per app open from `src/app/(app)/page.tsx`.
 - **2026-10-12** — Added **NA (not applicable)** as a third answer: small grey button on each habit card, one tap, no popup. NA pauses the streak (no +1, no break), pays nothing, uses neither the No allowance nor the freeze, and is left out of the perfect-day check (at least one Yes still needed). New `isPerfectDay` in `src/lib/balance.ts`, NA skip in `src/lib/streak.ts`, `'na'` added to the response type, new migration `supabase-na.sql`.

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, habitStarted, loadAppConfig, type AppConfig } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
-import { applyStoredOrder } from '@/lib/habitOrder'
+import { migrateLocalOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, getWeekStart, successRate, type StreakCheckin } from '@/lib/streak'
 import { dayEarnings, isPerfectDay } from '@/lib/balance'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
@@ -81,6 +81,7 @@ export default function CheckInPage() {
       await fillMissedDays(supabase, user.id)
       missedDaysFilled = true
     }
+    await migrateLocalOrder(supabase, user.id)
 
     const [
       { data: habitsData },
@@ -89,7 +90,7 @@ export default function CheckInPage() {
       { data: allCheckins },
       cfg,
     ] = await Promise.all([
-      supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: true }),
+      supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
       supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate),
       supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single(),
       supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
@@ -114,7 +115,7 @@ export default function CheckInPage() {
     const activeHabits = habitsData ?? []
     const startedHabits = activeHabits.filter((h: Habit) => habitStarted(h, selectedDate))
 
-    setHabits(applyStoredOrder(startedHabits))
+    setHabits(startedHabits)
     setBalance(dayEarnings(selectedDate, activeHabits, lists, cfg))
     const map: CheckinMap = {}
     const ansMap: Record<string, PopupAnswers> = {}

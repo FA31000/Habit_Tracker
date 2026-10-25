@@ -15,6 +15,7 @@ export type Habit = {
   created_at: string
   start_date: string | null
   question_config: HabitPopupConfig | null
+  sort_order: number | null
 }
 
 // Whether a habit applies on a date (it has started by then).

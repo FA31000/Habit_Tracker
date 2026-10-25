@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { Habit } from '@/lib/types'
 import HabitForm from '@/components/HabitForm'
-import { applyStoredOrder, saveOrder } from '@/lib/habitOrder'
+import { migrateLocalOrder, persistOrder } from '@/lib/habitOrder'
 
 export default function HabitsPage() {
   const [habits, setHabits] = useState<Habit[]>([])
@@ -20,8 +20,9 @@ export default function HabitsPage() {
       user = data.user
     }
     if (!user) return
-    const { data } = await supabase.from('habits').select('*').order('created_at', { ascending: true })
-    setHabits(applyStoredOrder(data ?? []))
+    await migrateLocalOrder(supabase, user.id)
+    const { data } = await supabase.from('habits').select('*').order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
+    setHabits(data ?? [])
     setLoading(false)
   }
 
@@ -41,13 +42,11 @@ export default function HabitsPage() {
   function moveHabit(index: number, direction: -1 | 1) {
     const newIndex = index + direction
     if (newIndex < 0 || newIndex >= habits.length) return
-    setHabits(prev => {
-      const next = [...prev]
-      const [item] = next.splice(index, 1)
-      next.splice(newIndex, 0, item)
-      saveOrder(next)
-      return next
-    })
+    const next = [...habits]
+    const [item] = next.splice(index, 1)
+    next.splice(newIndex, 0, item)
+    setHabits(next)
+    persistOrder(supabase, next)
   }
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
