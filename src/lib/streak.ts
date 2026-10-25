@@ -86,6 +86,16 @@ export function computeHabitStreak(
 export function responseCounts(checkins: StreakCheckin[]) {
   const counts = { yes: 0, no: 0, freeze: 0, na: 0 }
   for (const c of checkins) counts[c.response]++
-  const decided = counts.yes + counts.no
-  return { ...counts, rate: decided > 0 ? Math.round((counts.yes / decided) * 100) : 0 }
+  return { ...counts, rate: Math.round(successRate(checkins)) }
+}
+
+// The same success rate, unrounded (0–100), for showing small changes.
+export function successRate(checkins: StreakCheckin[]): number {
+  let yes = 0
+  let no = 0
+  for (const c of checkins) {
+    if (c.response === 'yes') yes++
+    else if (c.response === 'no') no++
+  }
+  return yes + no > 0 ? (yes / (yes + no)) * 100 : 0
 }

@@ -6,7 +6,7 @@ import type { Habit, Checkin, HabitPopupConfig, PopupAnswers } from '@/lib/types
 import { BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, habitStarted, loadAppConfig, type AppConfig } from '@/lib/types'
 import { fetchUserConfig } from '@/lib/appConfig'
 import { applyStoredOrder } from '@/lib/habitOrder'
-import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/streak'
+import { computeHabitStreak, getWeekStart, successRate, type StreakCheckin } from '@/lib/streak'
 import { dayEarnings, isPerfectDay } from '@/lib/balance'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { fillMissedDays } from '@/lib/autoNo'
@@ -48,7 +48,7 @@ export default function CheckInPage() {
   // Balance after the last Save Check-In, for the summary card under the list.
   const [savedBalance, setSavedBalance] = useState<number | null>(null)
   // "+S$X" and the new streak floating up from a card right after tapping Yes.
-  const [floats, setFloats] = useState<Record<string, { key: number; money: string; streak: number }>>({})
+  const [floats, setFloats] = useState<Record<string, { key: number; money: string; streak: number; rate: string }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
@@ -227,13 +227,23 @@ export default function CheckInPage() {
     const pay = newYes ? habit.dollar_value * getStreakMultiplier(newStreak, appConfig) : 0
     await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
     closePopup()
-    if (newYes) showFloat(habit.id, `+${appConfig.currencySymbol}${pay.toFixed(2)}`, newStreak)
+    if (newYes) showFloat(habit.id, `+${appConfig.currencySymbol}${pay.toFixed(2)}`, newStreak, rateChange(habit))
   }
 
-  function showFloat(habitId: string, money: string, streak: number) {
+  // Success rate after a Yes on selectedDate, and how much that Yes moved it
+  // compared with the day's previous answer (or no answer), e.g. "60% (+0.3%)".
+  function rateChange(habit: Habit): string {
+    const others = (habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate)
+    const prev = checkins[habit.id]
+    const before = successRate(prev ? [...others, { date: selectedDate, response: prev }] : others)
+    const after = successRate([...others, { date: selectedDate, response: 'yes' }])
+    return `${Math.round(after)}% (+${(after - before).toFixed(1)}%)`
+  }
+
+  function showFloat(habitId: string, money: string, streak: number, rate: string) {
     const key = Date.now()
     buzz(25)
-    setFloats(p => ({ ...p, [habitId]: { key, money, streak } }))
+    setFloats(p => ({ ...p, [habitId]: { key, money, streak, rate } }))
     setTimeout(() => setFloats(p => {
       if (p[habitId]?.key !== key) return p
       const next = { ...p }
@@ -414,6 +424,7 @@ export default function CheckInPage() {
                 >
                   <span className="text-lg font-extrabold text-emerald-600 leading-tight">{floats[habit.id].money}</span>
                   <span className="text-sm font-bold text-orange-500 leading-tight">🔥 {floats[habit.id].streak}-day streak</span>
+                  <span className="text-xs font-bold text-gray-500 leading-tight">📈 {floats[habit.id].rate}</span>
                 </span>
               )}
               <div className="flex items-center justify-between mb-1.5">
