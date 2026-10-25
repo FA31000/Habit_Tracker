@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
-import { applyStoredOrder } from '@/lib/habitOrder'
+import { migrateLocalOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, todayDate, responseCounts } from '@/lib/streak'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
@@ -31,7 +31,8 @@ export default function StatsPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const { data: habits } = await supabase.from('habits').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
+    await migrateLocalOrder(supabase, user.id)
+    const { data: habits } = await supabase.from('habits').select('*').eq('user_id', user.id).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
     const { data: allCheckins } = await supabase.from('checkins').select('*').eq('user_id', user.id)
     const { data: badges } = await supabase.from('badges').select('*').eq('user_id', user.id)
 
@@ -47,7 +48,7 @@ export default function StatsPage() {
 
     const today = todayDate()
 
-    const habitStats: HabitStats[] = applyStoredOrder(habits ?? []).map(habit => {
+    const habitStats: HabitStats[] = (habits ?? []).map(habit => {
       const hc = (allCheckins ?? []).filter(c => c.habit_id === habit.id)
       const list = hc.map(c => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' }))
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, today)

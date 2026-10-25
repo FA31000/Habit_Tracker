@@ -32,7 +32,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
     setName(profile?.display_name ?? null)
 
     const [{ data: habits }, { data: allCheckins }, { data: badges }] = await Promise.all([
-      supabase.from('public_habits').select('*').eq('user_id', id).eq('is_active', true).order('created_at', { ascending: true }),
+      supabase.from('public_habits').select('*').eq('user_id', id).eq('is_active', true).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
       supabase.from('public_checkins').select('*').eq('user_id', id),
       supabase.from('badges').select('*').eq('user_id', id),
     ])
