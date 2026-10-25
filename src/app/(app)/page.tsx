@@ -259,7 +259,8 @@ export default function CheckInPage() {
   }
 
   // Success rate after the new answer, and how much it moved compared with the
-  // day's previous answer (or no answer), e.g. "📈 60% (+0.3%)". The change is
+  // day's previous answer (or no answer), in percentage points, e.g.
+  // "📈 60% (+0.3 pts)". The change is
   // left off when there is none (a freeze counts as neither Yes nor No).
   function rateChange(habit: Habit, prev: CheckinMap[string] | null, response: CheckinMap[string]): string {
     const others = (habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate)
@@ -267,7 +268,7 @@ export default function CheckInPage() {
     const after = successRate([...others, { date: selectedDate, response }])
     const delta = after - before
     if (Math.abs(delta) < 0.05) return `📊 ${Math.round(after)}%`
-    return `${delta > 0 ? '📈' : '📉'} ${Math.round(after)}% (${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)}%)`
+    return `${delta > 0 ? '📈' : '📉'} ${Math.round(after)}% (${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)} pts)`
   }
 
   function showFloat(habitId: string, lines: FloatLine[], vibrate: boolean) {
