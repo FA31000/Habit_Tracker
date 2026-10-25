@@ -10,7 +10,10 @@ import { computeHabitStreak, getWeekStart, type StreakCheckin } from '@/lib/stre
 import { dayEarnings, isPerfectDay } from '@/lib/balance'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { fillMissedDays } from '@/lib/autoNo'
-import Confetti from '@/components/Confetti'
+import CelebrationOverlay from '@/components/CelebrationOverlay'
+import { buildCelebration, type Celebration, type NewBadge } from '@/lib/celebration'
+import { fetchMoneySnapshot } from '@/lib/moneySnapshot'
+import { buzz, CELEBRATION_BUZZ } from '@/lib/haptics'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze' | 'na'>
 
@@ -41,7 +44,11 @@ export default function CheckInPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
-  const [showConfetti, setShowConfetti] = useState(false)
+  const [celebration, setCelebration] = useState<Celebration | null>(null)
+  // Balance after the last Save Check-In, for the summary card under the list.
+  const [savedBalance, setSavedBalance] = useState<number | null>(null)
+  // "+S$X" floating up from a card right after tapping Yes.
+  const [floats, setFloats] = useState<Record<string, { key: number; text: string }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
@@ -124,7 +131,7 @@ export default function CheckInPage() {
     setLoading(false)
   }, [selectedDate, weekStart])
 
-  useEffect(() => { setLoading(true); setCheckins({}); load() }, [load])
+  useEffect(() => { setLoading(true); setCheckins({}); setSavedBalance(null); load() }, [load])
 
   // One-time migration of old localStorage popup data into Supabase, then reload.
   useEffect(() => {
@@ -218,8 +225,24 @@ export default function CheckInPage() {
     const config = getPopupConfig(pendingPopupHabitId)
     const showQuestions = !!config && config.trigger === pendingResponse
     const finalResponse = pendingResponse === 'no' && popupFreeze ? 'freeze' : pendingResponse
+    const habit = habits.find(h => h.id === pendingPopupHabitId)
+    const newYes = !!habit && finalResponse === 'yes' && checkins[habit.id] !== 'yes'
+    const pay = newYes ? habit.dollar_value * getStreakMultiplier(projectStreak(habit, 'yes'), appConfig) : 0
     await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
     closePopup()
+    if (newYes) showFloat(habit.id, `+${appConfig.currencySymbol}${pay.toFixed(2)}`)
+  }
+
+  function showFloat(habitId: string, text: string) {
+    const key = Date.now()
+    buzz(25)
+    setFloats(p => ({ ...p, [habitId]: { key, text } }))
+    setTimeout(() => setFloats(p => {
+      if (p[habitId]?.key !== key) return p
+      const next = { ...p }
+      delete next[habitId]
+      return next
+    }), 1300)
   }
 
   async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
@@ -264,6 +287,9 @@ export default function CheckInPage() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { setSaving(false); return }
     const earned: string[] = []
+    const earnedBadges: NewBadge[] = []
+    const streakAfter: Record<string, number> = {}
+    const listsAfter: Record<string, StreakCheckin[]> = { ...habitCheckinLists }
     const answered = habits.filter(h => checkins[h.id])
     const ids = answered.map(h => h.id)
     // Fetch everything at once instead of one habit at a time.
@@ -278,6 +304,8 @@ export default function CheckInPage() {
     for (const [i, habit] of answered.entries()) {
       const list = (checkinResults[i].data ?? []).map((c: { date: string; response: string }) => ({ date: c.date, response: c.response as 'yes' | 'no' | 'freeze' | 'na' }))
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, selectedDate)
+      listsAfter[habit.id] = list
+      streakAfter[habit.id] = current
       const streakData = (streakRows ?? []).find((s: { habit_id: string }) => s.habit_id === habit.id)
       const newLongest = Math.max(longest, streakData?.longest_streak ?? 0)
       if (streakData) {
@@ -290,12 +318,15 @@ export default function CheckInPage() {
         if (newLongest >= milestone && !have.has(milestone)) {
           newBadgeRows.push({ habit_id: habit.id, user_id: user.id, milestone_days: milestone })
           earned.push(`${habit.name} — ${milestone}-day badge!`)
+          earnedBadges.push({ habitId: habit.id, habitName: habit.name, milestone })
         }
       }
     }
     const perfectDay = isPerfectDay(habits.map(h => checkins[h.id]))
-    // Save streaks, badges and perfect day all at once.
-    await Promise.all([
+    // Save streaks, badges and perfect day all at once, and read the new
+    // balance alongside (check-ins are already saved, so it is up to date).
+    const [snapshot] = await Promise.all([
+      fetchMoneySnapshot(),
       ...streakUpdates,
       newStreakRows.length > 0 && supabase.from('streaks').insert(newStreakRows),
       newBadgeRows.length > 0 && supabase.from('badges').upsert(newBadgeRows),
@@ -308,7 +339,28 @@ export default function CheckInPage() {
     setNewBadges(earned)
     setSaving(false)
     setDone(true)
-    if (perfectDay) setShowConfetti(true)
+    if (snapshot) {
+      // The header badge refetches on this, so it matches the celebration.
+      window.dispatchEvent(new StorageEvent('storage', { key: 'balance' }))
+      setSavedBalance(snapshot.balance)
+      // Only today gets the full celebration; a backfilled day just gets the
+      // summary card below.
+      if (selectedDate === today) {
+        const cel = buildCelebration({
+          date: selectedDate,
+          habits: habits.map(h => ({ id: h.id, name: h.name, description: h.description, response: checkins[h.id], streak: streakAfter[h.id] ?? 0 })),
+          newBadges: earnedBadges,
+          perfect: perfectDay,
+          earned: dayEarnings(selectedDate, habits, listsAfter, snapshot.cfg),
+          balanceAfter: snapshot.balance,
+          rewards: snapshot.rewards,
+          ratePerDay: snapshot.ratePerDay,
+          cfg: snapshot.cfg,
+        })
+        setCelebration(cel)
+        buzz(CELEBRATION_BUZZ[cel.level])
+      }
+    }
     await load()
   }
 
@@ -319,7 +371,7 @@ export default function CheckInPage() {
 
   return (
     <div className="p-3">
-      {showConfetti && <Confetti onDone={() => setShowConfetti(false)} />}
+      {celebration && <CelebrationOverlay data={celebration} symbol={appConfig.currencySymbol} onClose={() => setCelebration(null)} />}
       <div className="flex items-center justify-between mb-2 mt-1">
         <button
           onClick={() => { setSelectedDate(prev => addDays(prev, -1)); setDone(false) }}
@@ -351,9 +403,18 @@ export default function CheckInPage() {
           return (
             <div
               key={habit.id}
-              className={`rounded-xl px-3 py-2 shadow-sm ${badge ? '' : 'bg-white ring-1 ring-black/5'}`}
+              className={`relative rounded-xl px-3 py-2 shadow-sm ${badge ? '' : 'bg-white ring-1 ring-black/5'}`}
               style={badge ? { backgroundColor: badge.color + '22' } : undefined}
             >
+              {floats[habit.id] && (
+                <span
+                  key={floats[habit.id].key}
+                  className="pointer-events-none absolute left-1/2 top-1 z-10 text-lg font-extrabold text-emerald-600 drop-shadow-sm"
+                  style={{ animation: 'float-up 1.2s ease-out forwards' }}
+                >
+                  {floats[habit.id].text}
+                </span>
+              )}
               <div className="flex items-center justify-between mb-1.5">
                 <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
                 <div className="flex items-center gap-2">
@@ -400,6 +461,9 @@ export default function CheckInPage() {
             <div className="text-3xl mb-2">🎉</div>
             <p className="text-emerald-700 font-bold text-base">Check-in complete!</p>
             <p className="text-gray-500 text-sm mt-1">{selectedDate === today ? 'Earned today' : 'Earned this day'}: <span className="text-emerald-700 font-bold">{appConfig.currencySymbol}{balance.toFixed(2)}</span></p>
+            {savedBalance !== null && (
+              <p className="text-gray-500 text-sm mt-0.5">Balance now: <span className={`font-bold ${savedBalance < 0 ? 'text-red-500' : 'text-gray-800'}`}>{savedBalance < 0 ? '−' : ''}{appConfig.currencySymbol}{Math.abs(savedBalance).toFixed(2)}</span></p>
+            )}
           </div>
           {showFreezeBonus && (
             <div className="bg-sky-50 ring-1 ring-sky-200 rounded-2xl p-4 text-center text-sm text-sky-700 font-medium">

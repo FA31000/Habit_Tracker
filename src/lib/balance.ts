@@ -100,3 +100,28 @@ export function totalEarned(
   for (const d of dates) total += dayEarnings(d, habits, checkinsByHabit, cfg)
   return total + freezeBonusTotal(checkinsByHabit, cfg, today)
 }
+
+// Run rate: average earnings per day over the last 14 full days (today
+// excluded, days before the first ever check-in excluded). Credits never enter
+// it, so it stays "money my habits generate per day".
+export function ratePerDay(
+  habits: EarnHabit[],
+  checkinsByHabit: CheckinsByHabit,
+  cfg: AppConfig,
+  today: string = todayDate(),
+): number {
+  let firstDate: string | null = null
+  for (const list of Object.values(checkinsByHabit)) {
+    for (const c of list) if (firstDate === null || c.date < firstDate) firstDate = c.date
+  }
+  if (firstDate === null) return 0
+  let sum = 0
+  let days = 0
+  for (let i = 1; i <= 14; i++) {
+    const d = addDays(today, -i)
+    if (d < firstDate) break
+    sum += dayEarnings(d, habits, checkinsByHabit, cfg)
+    days++
+  }
+  return days > 0 ? sum / days : 0
+}
