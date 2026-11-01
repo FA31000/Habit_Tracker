@@ -328,6 +328,7 @@ export default function CheckInPage() {
     const earned: string[] = []
     const earnedBadges: NewBadge[] = []
     const streakAfter: Record<string, number> = {}
+    const streakBefore: Record<string, number> = {}
     const listsAfter: Record<string, StreakCheckin[]> = { ...habitCheckinLists }
     const answered = habits.filter(h => checkins[h.id])
     const ids = answered.map(h => h.id)
@@ -345,6 +346,7 @@ export default function CheckInPage() {
       const { current, longest } = computeHabitStreak(list, habit.allowed_no_days_per_week, selectedDate)
       listsAfter[habit.id] = list
       streakAfter[habit.id] = current
+      streakBefore[habit.id] = computeHabitStreak(list.filter(c => c.date !== selectedDate), habit.allowed_no_days_per_week, selectedDate).current
       const streakData = (streakRows ?? []).find((s: { habit_id: string }) => s.habit_id === habit.id)
       const newLongest = Math.max(longest, streakData?.longest_streak ?? 0)
       if (streakData) {
@@ -387,7 +389,7 @@ export default function CheckInPage() {
       if (selectedDate === today) {
         const cel = buildCelebration({
           date: selectedDate,
-          habits: habits.map(h => ({ id: h.id, name: h.name, description: h.description, response: checkins[h.id], streak: streakAfter[h.id] ?? 0 })),
+          habits: habits.map(h => ({ id: h.id, name: h.name, description: h.description, response: checkins[h.id], streak: streakAfter[h.id] ?? 0, streakBefore: streakBefore[h.id] ?? 0 })),
           newBadges: earnedBadges,
           perfect: perfectDay,
           earned: dayEarnings(selectedDate, habits, listsAfter, snapshot.cfg),

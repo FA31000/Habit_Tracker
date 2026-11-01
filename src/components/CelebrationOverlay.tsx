@@ -7,12 +7,13 @@ import type { Celebration } from '@/lib/celebration'
 
 // Timeline (ms from opening). The day's money counts up, a perfect day stamps
 // "×2" and counts on to the doubled amount, then the balance rolls old → new,
-// then the content line fades in.
+// then the nudge line fades in. The quote shows early, alongside the count.
 const EARN_START = 300
 const EARN_MS = 1000
 const DOUBLE_STAMP = 1500
 const DOUBLE_MS = 600
 const ROLL_MS = 1000
+const QUOTE_AT = 700
 
 function useCountUp(from: number, to: number, delay: number, duration: number): number {
   const [value, setValue] = useState(from)
@@ -59,14 +60,9 @@ export default function CelebrationOverlay({ data, symbol, onClose }: { data: Ce
   const showStamp = useElapsed(DOUBLE_STAMP)
   const earnedShown = perfect && showStamp ? doubled : firstCount
   const showContent = useElapsed(rollStart + ROLL_MS + 100)
+  const showQuote = useElapsed(QUOTE_AT)
   const canClose = useElapsed(600)
-  const [ringOn, setRingOn] = useState(false)
   const [confettiOn, setConfettiOn] = useState(data.level > 0)
-
-  useEffect(() => {
-    const t = setTimeout(() => setRingOn(true), 50)
-    return () => clearTimeout(t)
-  }, [])
 
   const headline = data.tier === 'milestone'
     ? (data.newBadges.length > 0 ? 'New badge!' : 'Reward unlocked!')
@@ -75,11 +71,6 @@ export default function CelebrationOverlay({ data, symbol, onClose }: { data: Ce
 
   const confettiCount = [0, 90, 150, 220][data.level]
   const confettiColors = data.tier === 'milestone' ? [data.accent, '#fbbf24', '#fde68a', '#34d399', '#ffffff'] : undefined
-
-  // Streak ring.
-  const R = 52
-  const C = 2 * Math.PI * R
-  const offset = C * (1 - (ringOn ? data.ring.progress : 0))
 
   return (
     <div
@@ -127,41 +118,54 @@ export default function CelebrationOverlay({ data, symbol, onClose }: { data: Ce
           </p>
         </div>
 
-        {/* Streak ring */}
-        <div className="relative mt-6 w-36 h-36">
-          <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-            <circle cx="60" cy="60" r={R} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="9" />
-            <circle
-              cx="60" cy="60" r={R} fill="none" stroke={data.ring.color} strokeWidth="9" strokeLinecap="round"
-              strokeDasharray={C} strokeDashoffset={offset}
-              style={{ transition: 'stroke-dashoffset 1200ms cubic-bezier(0.22, 1, 0.36, 1) 300ms' }}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <p className="text-3xl font-extrabold leading-none">🔥{data.ring.streak}</p>
-            <p className="text-[11px] text-white/70 mt-1">{data.ring.reached ? `${data.ring.streak}-day badge` : data.ring.next ? `next badge at ${data.ring.next}` : 'top badge'}</p>
-          </div>
-        </div>
-        <p className="text-xs text-white/60 mt-1 max-w-[16rem] truncate">{data.ring.habitName}</p>
-
-        {data.streaks.length > 1 && (
-          <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-            {data.streaks.map(s => (
-              <span key={s.name} className={`rounded-full px-2.5 py-0.5 text-xs ${s.response === 'yes' ? 'bg-white/15 text-white' : 'bg-white/5 text-white/50'}`}>
-                {s.name.replace(/^Did I /i, '').replace(/\?$/, '')} · {s.streak}
-              </span>
-            ))}
+        {/* Streaks per habit */}
+        {data.streaks.length > 0 && (
+          <div className="mt-7 w-full">
+            <p className="text-xs uppercase tracking-widest text-white/60 mb-2">Streaks</p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {data.streaks.map(s => {
+                const label = s.name.replace(/^Did I /i, '').replace(/\?$/, '')
+                const style = s.broken !== null
+                  ? 'bg-red-500/15 text-red-200 ring-1 ring-red-400/40'
+                  : s.badgeToday
+                    ? 'bg-amber-400/25 text-amber-100 ring-1 ring-amber-300/60'
+                    : s.near
+                      ? 'bg-white/15 text-white ring-1 ring-amber-300/50'
+                      : s.response === 'yes'
+                        ? 'bg-white/15 text-white'
+                        : 'bg-white/5 text-white/50'
+                return (
+                  <span key={s.name} className={`rounded-full px-3 py-1 text-sm ${style}`}>
+                    {label} ·{' '}
+                    {s.broken !== null
+                      ? <span className="font-semibold tabular-nums"><s className="opacity-70">{s.broken}</s> → 0</span>
+                      : <span className="font-semibold tabular-nums">{s.streak}</span>}
+                    {s.near && s.broken === null && !s.badgeToday && (
+                      <span className="ml-1 text-amber-200 text-xs">{s.near.days} to {s.near.milestone}</span>
+                    )}
+                  </span>
+                )
+              })}
+            </div>
           </div>
         )}
 
-        {/* Content line */}
-        <div className="mt-6 min-h-[5rem] w-full">
-          {showContent && (
+        {/* Quote — every check-in, shown early so it isn't missed */}
+        {showQuote && (
+          <figure className="mt-7 w-full px-2" style={{ animation: 'fade-up 500ms ease-out' }}>
+            <blockquote className="text-lg leading-snug font-medium italic text-white/95">“{data.quote.text}”</blockquote>
+            {data.quote.sub && <figcaption className="text-xs text-white/60 mt-2">— {data.quote.sub}</figcaption>}
+          </figure>
+        )}
+
+        {/* Badge / reward / why nudge */}
+        <div className="mt-6 min-h-[4rem] w-full">
+          {showContent && data.nudge && (
             <div className="rounded-2xl bg-white/10 px-4 py-3" style={{ animation: 'fade-up 400ms ease-out' }}>
-              <p className={`text-sm leading-snug ${data.content.kind === 'quote' || data.content.kind === 'why' ? 'italic' : 'font-semibold'}`}>
-                <span className="not-italic mr-1">{data.content.icon}</span>{data.content.text}
+              <p className={`text-sm leading-snug ${data.nudge.kind === 'why' ? 'italic' : 'font-semibold'}`}>
+                <span className="not-italic mr-1">{data.nudge.icon}</span>{data.nudge.text}
               </p>
-              {data.content.sub && <p className="text-xs text-white/60 mt-1">— {data.content.sub}</p>}
+              {data.nudge.sub && <p className="text-xs text-white/60 mt-1">— {data.nudge.sub}</p>}
             </div>
           )}
         </div>
