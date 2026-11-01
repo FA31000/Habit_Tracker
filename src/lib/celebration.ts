@@ -1,4 +1,4 @@
-import { BADGE_CONFIG, BADGE_MILESTONES, getStreakBadge, getStreakMultiplier, type AppConfig } from './types'
+import { BADGE_CONFIG, BADGE_MILESTONES, getStreakMultiplier, type AppConfig } from './types'
 import type { RewardTarget } from './moneySnapshot'
 import { QUOTES } from './quotes'
 
@@ -18,11 +18,21 @@ export type CelebrationHabit = {
   description: string | null
   response: 'yes' | 'no' | 'freeze' | 'na' | undefined
   streak: number // current streak after the save
+  streakBefore: number // streak before today's answer, to spot a break
 }
 
 export type NewBadge = { habitId: string; habitName: string; milestone: number }
 
 export type CelebrationContent = { kind: ContentKind; icon: string; text: string; sub?: string }
+
+export type CelebrationStreak = {
+  name: string
+  streak: number
+  response: CelebrationHabit['response']
+  broken: number | null // the streak today's No just reset, if any
+  badgeToday: boolean // reached a badge milestone with today's answer
+  near: { days: number; milestone: number } | null // within NEAR_DAYS of the next badge
+}
 
 export type Celebration = {
   tier: CelebrationTier
@@ -39,9 +49,9 @@ export type Celebration = {
   newBadges: NewBadge[]
   unlocked: RewardTarget[] // rewards this save made affordable
   accent: string // badge colour on milestone days
-  ring: { habitName: string; streak: number; progress: number; next: number | null; reached: boolean; color: string }
-  streaks: { name: string; streak: number; response: CelebrationHabit['response'] }[]
-  content: CelebrationContent
+  streaks: CelebrationStreak[] // done first, then longest streak first
+  nudge: CelebrationContent | null // badge / reward / "why" line
+  quote: CelebrationContent // shown on every check-in
 }
 
 function nextMilestone(streak: number): number | null {
@@ -50,6 +60,16 @@ function nextMilestone(streak: number): number | null {
 
 function dayIndex(date: string): number {
   return Math.floor(new Date(date + 'T00:00:00Z').getTime() / 86_400_000)
+}
+
+// Steps through the list by a stride coprime to its length, so every quote
+// shows once per cycle but neighbours in the file (same author) aren't
+// shown on back-to-back days.
+function quoteIndex(day: number, len: number): number {
+  const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b))
+  let stride = 37
+  while (gcd(stride, len) !== 1) stride++
+  return (((day * stride) % len) + len) % len
 }
 
 function money(sym: string, v: number): string {
@@ -100,23 +120,6 @@ export function buildCelebration(args: {
   const level = tier === 'milestone' ? 3 : tier === 'perfect' ? (near ? 2 : 1) : 0
   const topBadge = newBadges.reduce<NewBadge | null>((a, b) => (!a || b.milestone > a.milestone ? b : a), null)
 
-  // The ring features the habit that just earned a badge, else the longest streak.
-  const ringHabit = (topBadge && habits.find(h => h.id === topBadge.habitId))
-    || habits.reduce<CelebrationHabit | null>((a, h) => (!a || h.streak > a.streak ? h : a), null)
-  const ringStreak = ringHabit?.streak ?? 0
-  const ringNext = nextMilestone(ringStreak)
-  const ringPrev = [...BADGE_MILESTONES].reverse().find(m => m <= ringStreak) ?? 0
-  const reached = ringPrev > 0 && ringStreak === ringPrev
-  const ring = {
-    habitName: ringHabit?.name ?? '',
-    streak: ringStreak,
-    next: ringNext,
-    // Full on the day a badge is reached, rather than empty towards the next.
-    progress: ringNext === null || reached ? 1 : (ringStreak - ringPrev) / (ringNext - ringPrev),
-    reached,
-    color: getStreakBadge(ringStreak)?.color ?? '#34d399',
-  }
-
   const builders: Record<ContentKind, () => CelebrationContent | null> = {
     reward: () => {
       if (rewards.length === 0) return null
@@ -145,10 +148,11 @@ export function buildCelebration(args: {
       return { kind: 'why', icon: '💭', text: h.description!.trim(), sub: `Why: ${h.name}` }
     },
     quote: () => {
-      const q = QUOTES[dayIndex(date) % QUOTES.length]
+      const q = QUOTES[quoteIndex(dayIndex(date), QUOTES.length)]
       return { kind: 'quote', icon: '“', text: q.text, sub: q.author }
     },
   }
+  const quote = builders.quote()!
 
   let content: CelebrationContent | null = null
   // Big moments override the daily rotation.
@@ -159,10 +163,27 @@ export function buildCelebration(args: {
   if (!content && badgeNear && badgeNear.days <= NEAR_DAYS) content = builders.badge()
   if (!content && rewardNear?.days != null && rewardNear.days <= NEAR_DAYS) content = builders.reward()
   if (!content) {
-    const cycle: ContentKind[] = ['reward', 'badge', 'why', 'quote']
+    const cycle: ContentKind[] = ['reward', 'badge', 'why']
     const start = dayIndex(date) % cycle.length
     for (let i = 0; i < cycle.length && !content; i++) content = builders[cycle[(start + i) % cycle.length]]()
   }
+
+  const done = (r: CelebrationHabit['response']) => (r === 'yes' ? 0 : 1)
+  const streaks: CelebrationStreak[] = habits
+    .filter(h => h.response !== 'na')
+    .map(h => {
+      const next = nextMilestone(h.streak)
+      const days = next === null ? null : next - h.streak
+      return {
+        name: h.name,
+        streak: h.streak,
+        response: h.response,
+        broken: h.response === 'no' && h.streakBefore > 0 && h.streak < h.streakBefore ? h.streakBefore : null,
+        badgeToday: h.streak > h.streakBefore && BADGE_MILESTONES.includes(h.streak),
+        near: h.streak > 0 && days !== null && days <= NEAR_DAYS ? { days, milestone: next! } : null,
+      }
+    })
+    .sort((x, y) => done(x.response) - done(y.response) || y.streak - x.streak)
 
   const applicable = habits.filter(h => h.response && h.response !== 'na')
   return {
@@ -178,8 +199,8 @@ export function buildCelebration(args: {
     newBadges,
     unlocked,
     accent: topBadge ? BADGE_CONFIG[topBadge.milestone].color : '#fbbf24',
-    ring,
-    streaks: habits.filter(h => h.response !== 'na').map(h => ({ name: h.name, streak: h.streak, response: h.response })),
-    content: content ?? builders.quote()!,
+    streaks,
+    nudge: content,
+    quote,
   }
 }
