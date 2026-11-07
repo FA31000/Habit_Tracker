@@ -162,7 +162,7 @@ export default function StatsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="text-center">
                     <p className="text-gray-900 font-bold">{s.currentStreak}</p>
                     <p className="text-xs text-gray-400">Streak</p>
@@ -175,18 +175,6 @@ export default function StatsPage() {
                     <p className="text-gray-900 font-bold">{s.counts.rate}%</p>
                     <p className="text-xs text-gray-400">Rate</p>
                   </div>
-                </div>
-                <div className="flex gap-2 mt-2">
-                  {BADGE_MILESTONES.map(m => {
-                    const cfg = BADGE_CONFIG[m]
-                    const earned = s.earnedBadges.includes(m)
-                    return (
-                      <div key={m} title={`${m}-day badge`}
-                        className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
-                        {cfg.emoji}
-                      </div>
-                    )
-                  })}
                 </div>
                 {/* Popup data visualizations (inside the same card, hidden until expanded) */}
                 {isExpanded && popupConfig && popupConfig.questions.map((q, qi) => {
