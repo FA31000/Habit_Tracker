@@ -99,3 +99,37 @@ export function successRate(checkins: StreakCheckin[]): number {
   }
   return yes + no > 0 ? (yes / (yes + no)) * 100 : 0
 }
+
+// All-time success rate as it stood at the end of each of the last `days` days
+// (ending today). Each day's value counts every yes/no up to and including that
+// day; freeze/NA are ignored, as in successRate. Days before the first yes/no
+// have no rate (null), so a chart shows a gap there instead of a fake 0%.
+export function cumulativeRateSeries(
+  checkins: StreakCheckin[],
+  today: string,
+  days: number,
+): { date: string; rate: number | null }[] {
+  const start = addDays(today, -(days - 1))
+  const byDate = new Map<string, { yes: number; no: number }>()
+  let yes = 0
+  let no = 0
+  for (const c of checkins) {
+    if (c.response !== 'yes' && c.response !== 'no') continue
+    if (c.date < start) {
+      if (c.response === 'yes') yes++
+      else no++
+      continue
+    }
+    const e = byDate.get(c.date) ?? { yes: 0, no: 0 }
+    e[c.response]++
+    byDate.set(c.date, e)
+  }
+  const series: { date: string; rate: number | null }[] = []
+  for (let i = 0; i < days; i++) {
+    const date = addDays(start, i)
+    const e = byDate.get(date)
+    if (e) { yes += e.yes; no += e.no }
+    series.push({ date, rate: yes + no > 0 ? Math.round((yes / (yes + no)) * 1000) / 10 : null })
+  }
+  return series
+}
