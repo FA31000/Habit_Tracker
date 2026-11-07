@@ -3,9 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
+import { BADGE_CONFIG } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { computeHabitStreak, todayDate, responseCounts } from '@/lib/streak'
+import type { StreakCheckin } from '@/lib/streak'
+import { RateChart, RateRangeToggle, rangeDays } from '@/components/RateChart'
+import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
 type HabitStats = {
@@ -14,6 +17,7 @@ type HabitStats = {
   longestStreak: number
   counts: ReturnType<typeof responseCounts>
   earnedBadges: number[]
+  checkins: StreakCheckin[]
 }
 
 export default function FriendProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,6 +27,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
   const [stats, setStats] = useState<HabitStats[]>([])
   const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, PopupAnswers>>({})
   const [loading, setLoading] = useState(true)
+  const [range, setRange] = useState<RateRange>('30d')
 
   useEffect(() => { params.then(p => setId(p.id)) }, [params])
 
@@ -59,6 +64,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
         longestStreak: longest,
         counts: responseCounts(list),
         earnedBadges: (badgeMap.get(habit.id) ?? []).sort((a, b) => a - b),
+        checkins: list,
       }
     })
 
@@ -112,6 +118,8 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
+  const today = todayDate()
+
   if (!name) return (
     <div className="p-6 text-center">
       <p className="text-gray-500">This person was not found.</p>
@@ -133,7 +141,10 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
       )}
 
       {stats.length > 0 && (
-        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Per habit</p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Per habit</p>
+          <RateRangeToggle value={range} onChange={setRange} />
+        </div>
       )}
 
       <div className="space-y-3">
@@ -157,7 +168,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="text-center">
                     <p className="text-gray-900 font-bold">{s.currentStreak}</p>
                     <p className="text-xs text-gray-400">Streak</p>
@@ -171,18 +182,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
                     <p className="text-xs text-gray-400">Rate</p>
                   </div>
                 </div>
-                <div className="flex gap-2 mt-2">
-                  {BADGE_MILESTONES.map(m => {
-                    const cfg = BADGE_CONFIG[m]
-                    const earned = s.earnedBadges.includes(m)
-                    return (
-                      <div key={m} title={`${m}-day badge`}
-                        className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
-                        {cfg.emoji}
-                      </div>
-                    )
-                  })}
-                </div>
+                <RateChart checkins={s.checkins} endDate={today} days={rangeDays(range)} />
               </div>
 
               {/* Popup data visualizations */}
