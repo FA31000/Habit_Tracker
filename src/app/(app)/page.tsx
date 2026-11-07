@@ -11,6 +11,7 @@ import { dayEarnings, isPerfectDay } from '@/lib/balance'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { fillMissedDays } from '@/lib/autoNo'
 import CelebrationOverlay from '@/components/CelebrationOverlay'
+import { RateChart } from '@/components/RateChart'
 import { buildCelebration, type Celebration, type NewBadge } from '@/lib/celebration'
 import { fetchMoneySnapshot } from '@/lib/moneySnapshot'
 import { buzz, CELEBRATION_BUZZ } from '@/lib/haptics'
@@ -50,7 +51,8 @@ export default function CheckInPage() {
   const [savedBalance, setSavedBalance] = useState<number | null>(null)
   // Lines floating up from a card right after answering Yes / No / Freeze:
   // money, streak and success rate.
-  const [floats, setFloats] = useState<Record<string, { key: number; lines: FloatLine[] }>>({})
+  // rateHistory: the habit's answers with the new one applied, for the 7-day rate chart.
+  const [floats, setFloats] = useState<Record<string, { key: number; lines: FloatLine[]; rateHistory: StreakCheckin[] }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
@@ -229,7 +231,13 @@ export default function CheckInPage() {
     const lines = habit && checkins[habit.id] !== finalResponse ? floatLines(habit, finalResponse) : null
     await saveCheckin(pendingPopupHabitId, finalResponse, showQuestions ? popupCurrentAnswers : {})
     closePopup()
-    if (habit && lines) showFloat(habit.id, lines, finalResponse === 'yes')
+    if (habit && lines) {
+      const rateHistory: StreakCheckin[] = [
+        ...(habitCheckinLists[habit.id] ?? []).filter(c => c.date !== selectedDate),
+        { date: selectedDate, response: finalResponse },
+      ]
+      showFloat(habit.id, lines, rateHistory, finalResponse === 'yes')
+    }
   }
 
   // What changing the day's answer to `response` does: money (Yes only), the
@@ -272,16 +280,16 @@ export default function CheckInPage() {
     return `${delta > 0 ? '📈' : '📉'} ${Math.round(after)}% (${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)} pts)`
   }
 
-  function showFloat(habitId: string, lines: FloatLine[], vibrate: boolean) {
+  function showFloat(habitId: string, lines: FloatLine[], rateHistory: StreakCheckin[], vibrate: boolean) {
     const key = Date.now()
     if (vibrate) buzz(25)
-    setFloats(p => ({ ...p, [habitId]: { key, lines } }))
+    setFloats(p => ({ ...p, [habitId]: { key, lines, rateHistory } }))
     setTimeout(() => setFloats(p => {
       if (p[habitId]?.key !== key) return p
       const next = { ...p }
       delete next[habitId]
       return next
-    }), 4100)
+    }), 6100)
   }
 
   async function saveCheckin(habitId: string, response: 'yes' | 'no' | 'freeze' | 'na', answers: PopupAnswers) {
@@ -454,11 +462,12 @@ export default function CheckInPage() {
                 <span
                   key={floats[habit.id].key}
                   className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap rounded-xl bg-white/85 backdrop-blur-sm px-3 py-1.5 shadow-md ring-1 ring-black/5"
-                  style={{ animation: 'float-up 4s ease-out forwards' }}
+                  style={{ animation: 'float-up 6s ease-out forwards' }}
                 >
                   {floats[habit.id].lines.map((l, i) => (
                     <span key={i} className={`leading-tight ${l.className}`}>{l.text}</span>
                   ))}
+                  <RateChart checkins={floats[habit.id].rateHistory} endDate={selectedDate} days={7} width={200} height={90} trendColor />
                 </span>
               )}
               <div className="flex items-center justify-between mb-1.5">

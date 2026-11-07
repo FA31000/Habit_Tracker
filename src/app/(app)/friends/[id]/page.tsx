@@ -7,7 +7,7 @@ import { BADGE_CONFIG } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { computeHabitStreak, todayDate, responseCounts } from '@/lib/streak'
 import type { StreakCheckin } from '@/lib/streak'
-import { RateChart, RateRangeToggle } from '@/components/RateChart'
+import { RateChart, RateRangeToggle, rangeDays } from '@/components/RateChart'
 import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
@@ -182,7 +182,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
                     <p className="text-xs text-gray-400">Rate</p>
                   </div>
                 </div>
-                <RateChart checkins={s.checkins} range={range} today={today} />
+                <RateChart checkins={s.checkins} endDate={today} days={rangeDays(range)} />
               </div>
 
               {/* Popup data visualizations */}

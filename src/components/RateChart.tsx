@@ -12,9 +12,13 @@ export const RATE_RANGES = [
 ] as const
 export type RateRange = typeof RATE_RANGES[number]['key']
 
-function formatTick(date: string, range: RateRange): string {
+export function rangeDays(range: RateRange): number {
+  return RATE_RANGES.find(r => r.key === range)!.days
+}
+
+function formatTick(date: string, days: number): string {
   const d = new Date(date + 'T00:00:00')
-  if (range === '1y') return d.toLocaleDateString('en-SG', { month: 'short' })
+  if (days > 120) return d.toLocaleDateString('en-SG', { month: 'short' })
   return d.toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })
 }
 
@@ -36,10 +40,22 @@ export function RateRangeToggle({ value, onChange }: { value: RateRange; onChang
   )
 }
 
-// Line chart of a habit's all-time success rate at the end of each day in the range.
-export function RateChart({ checkins, range, today }: { checkins: StreakCheckin[]; range: RateRange; today: string }) {
-  const days = RATE_RANGES.find(r => r.key === range)!.days
-  const series = cumulativeRateSeries(checkins, today, days)
+const GREEN = '#047857'
+const RED = '#dc2626'
+
+// Line chart of a habit's all-time success rate at the end of each of the
+// `days` days ending on `endDate`. Without `width` it fills its container;
+// give a width where the container has none (e.g. a shrink-to-fit popup).
+// `trendColor` draws the line red when the rate ended lower than it started.
+export function RateChart({ checkins, endDate, days, width, height = 110, trendColor = false }: {
+  checkins: StreakCheckin[]
+  endDate: string
+  days: number
+  width?: number
+  height?: number
+  trendColor?: boolean
+}) {
+  const series = cumulativeRateSeries(checkins, endDate, days)
   const values = series.flatMap(p => (p.rate === null ? [] : [p.rate]))
   if (values.length === 0) return null
 
@@ -48,15 +64,14 @@ export function RateChart({ checkins, range, today }: { checkins: StreakCheckin[
   const max = Math.max(...values)
   const pad = Math.max(2, (max - min) * 0.15)
   const domain = [Math.max(0, Math.floor(min - pad)), Math.min(100, Math.ceil(max + pad))]
+  const color = trendColor && values[values.length - 1] < values[0] ? RED : GREEN
 
-  return (
-    <div className="mt-3">
-      <ResponsiveContainer width="100%" height={110}>
-        <LineChart data={series} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+  const chart = (
+        <LineChart data={series} width={width} height={width ? height : undefined} margin={{ top: 4, right: 18, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
           <XAxis
             dataKey="date"
-            tickFormatter={d => formatTick(d, range)}
+            tickFormatter={d => formatTick(d, days)}
             tick={{ fill: '#9ca3af', fontSize: 10 }}
             axisLine={false} tickLine={false}
             interval="preserveStartEnd" minTickGap={24}
@@ -70,17 +85,22 @@ export function RateChart({ checkins, range, today }: { checkins: StreakCheckin[
           <Tooltip
             contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
             labelStyle={{ color: '#6b7280' }}
-            itemStyle={{ color: '#047857' }}
+            itemStyle={{ color }}
             labelFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
             formatter={v => [`${v}%`, 'Rate']}
           />
           <Line
-            type="monotone" dataKey="rate" stroke="#047857" strokeWidth={2}
-            dot={range === '7d' ? <Dot r={3} fill="#047857" /> : false}
+            type="monotone" dataKey="rate" stroke={color} strokeWidth={2}
+            dot={days <= 7 ? <Dot r={3} fill={color} /> : false}
             activeDot={{ r: 4 }} isAnimationActive={false}
           />
         </LineChart>
-      </ResponsiveContainer>
+  )
+
+  if (width) return <div className="mt-1">{chart}</div>
+  return (
+    <div className="mt-3">
+      <ResponsiveContainer width="100%" height={height}>{chart}</ResponsiveContainer>
     </div>
   )
 }

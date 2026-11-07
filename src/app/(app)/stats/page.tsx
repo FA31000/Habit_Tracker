@@ -8,7 +8,7 @@ import { migrateLocalOrder } from '@/lib/habitOrder'
 import { computeHabitStreak, todayDate, responseCounts } from '@/lib/streak'
 import type { StreakCheckin } from '@/lib/streak'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
-import { RateChart, RateRangeToggle } from '@/components/RateChart'
+import { RateChart, RateRangeToggle, rangeDays } from '@/components/RateChart'
 import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
@@ -186,7 +186,7 @@ export default function StatsPage() {
                     <p className="text-xs text-gray-400">Rate</p>
                   </div>
                 </div>
-                <RateChart checkins={s.checkins} range={range} today={today} />
+                <RateChart checkins={s.checkins} endDate={today} days={rangeDays(range)} />
                 {/* Popup data visualizations (inside the same card, hidden until expanded) */}
                 {isExpanded && popupConfig && popupConfig.questions.map((q, qi) => {
                   if (q.type === 'number') {
