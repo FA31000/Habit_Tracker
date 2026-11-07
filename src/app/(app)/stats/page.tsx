@@ -5,7 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG, BADGE_MILESTONES } from '@/lib/types'
 import type { Habit, MultiQuestion, NumberQuestion, HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import { migrateLocalOrder } from '@/lib/habitOrder'
-import { computeHabitStreak, todayDate, responseCounts } from '@/lib/streak'
+import { computeHabitStreak, todayDate, responseCounts, cumulativeRateSeries } from '@/lib/streak'
+import type { StreakCheckin } from '@/lib/streak'
 import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 
@@ -15,12 +16,28 @@ type HabitStats = {
   longestStreak: number
   counts: ReturnType<typeof responseCounts>
   earnedBadges: number[]
+  checkins: StreakCheckin[]
+}
+
+const RANGES = [
+  { key: '7d', label: '7D', days: 7 },
+  { key: '30d', label: '30D', days: 30 },
+  { key: '3m', label: '3M', days: 91 },
+  { key: '1y', label: '1Y', days: 365 },
+] as const
+type RangeKey = typeof RANGES[number]['key']
+
+function formatTick(date: string, range: RangeKey): string {
+  const d = new Date(date + 'T00:00:00')
+  if (range === '1y') return d.toLocaleDateString('en-SG', { month: 'short' })
+  return d.toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })
 }
 
 export default function StatsPage() {
   const [stats, setStats] = useState<HabitStats[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedHabits, setExpandedHabits] = useState<Record<string, boolean>>({})
+  const [range, setRange] = useState<RangeKey>('30d')
 
   // Popup answers from Supabase, keyed habitId_date
   const [habitPopupAnswers, setHabitPopupAnswers] = useState<Record<string, PopupAnswers>>({})
@@ -58,6 +75,7 @@ export default function StatsPage() {
         longestStreak: longest,
         counts: responseCounts(list),
         earnedBadges: (badgeMap.get(habit.id) ?? []).sort((a, b) => a - b),
+        checkins: list,
       }
     })
 
@@ -117,6 +135,8 @@ export default function StatsPage() {
 
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>
 
+  const today = todayDate()
+
   return (
     <div className="p-4">
       {/* Badge legend */}
@@ -133,7 +153,21 @@ export default function StatsPage() {
       </div>
 
       {/* Per-habit section header */}
-      <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-3">Per habit</p>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Per habit</p>
+        <div className="flex bg-gray-100 rounded-lg p-0.5" role="group" aria-label="Rate chart range">
+          {RANGES.map(r => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              aria-pressed={range === r.key}
+              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${range === r.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="space-y-3">
         {stats.map(s => {
@@ -145,6 +179,14 @@ export default function StatsPage() {
             return false
           })
           const isExpanded = expandedHabits[s.habit.id] ?? false
+          const rangeDays = RANGES.find(r => r.key === range)!.days
+          const rateSeries = cumulativeRateSeries(s.checkins, today, rangeDays)
+          const rateValues = rateSeries.flatMap(p => (p.rate === null ? [] : [p.rate]))
+          // Zoom the Y-axis to the data: an all-time rate moves slowly, so 0–100 would look flat.
+          const rMin = rateValues.length ? Math.min(...rateValues) : 0
+          const rMax = rateValues.length ? Math.max(...rateValues) : 100
+          const pad = Math.max(2, (rMax - rMin) * 0.15)
+          const rateDomain = [Math.max(0, Math.floor(rMin - pad)), Math.min(100, Math.ceil(rMax + pad))]
 
           return (
             <div key={s.habit.id}>
@@ -162,7 +204,7 @@ export default function StatsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-3 gap-2">
                   <div className="text-center">
                     <p className="text-gray-900 font-bold">{s.currentStreak}</p>
                     <p className="text-xs text-gray-400">Streak</p>
@@ -176,18 +218,40 @@ export default function StatsPage() {
                     <p className="text-xs text-gray-400">Rate</p>
                   </div>
                 </div>
-                <div className="flex gap-2 mt-2">
-                  {BADGE_MILESTONES.map(m => {
-                    const cfg = BADGE_CONFIG[m]
-                    const earned = s.earnedBadges.includes(m)
-                    return (
-                      <div key={m} title={`${m}-day badge`}
-                        className={`flex-1 text-center text-base rounded-lg py-1 ${earned ? 'opacity-100' : 'opacity-20 grayscale'}`}>
-                        {cfg.emoji}
-                      </div>
-                    )
-                  })}
-                </div>
+                {rateValues.length > 0 && (
+                  <div className="mt-3">
+                    <ResponsiveContainer width="100%" height={110}>
+                      <LineChart data={rateSeries} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={d => formatTick(d, range)}
+                          tick={{ fill: '#9ca3af', fontSize: 10 }}
+                          axisLine={false} tickLine={false}
+                          interval="preserveStartEnd" minTickGap={24}
+                        />
+                        <YAxis
+                          tick={{ fill: '#9ca3af', fontSize: 10 }}
+                          axisLine={false} tickLine={false}
+                          domain={rateDomain} allowDecimals={false}
+                          tickFormatter={v => `${v}%`}
+                        />
+                        <Tooltip
+                          contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 12 }}
+                          labelStyle={{ color: '#6b7280' }}
+                          itemStyle={{ color: '#047857' }}
+                          labelFormatter={d => new Date(d + 'T00:00:00').toLocaleDateString('en-SG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          formatter={v => [`${v}%`, 'Rate']}
+                        />
+                        <Line
+                          type="monotone" dataKey="rate" stroke="#047857" strokeWidth={2}
+                          dot={range === '7d' ? <Dot r={3} fill="#047857" /> : false}
+                          activeDot={{ r: 4 }} isAnimationActive={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
                 {/* Popup data visualizations (inside the same card, hidden until expanded) */}
                 {isExpanded && popupConfig && popupConfig.questions.map((q, qi) => {
                   if (q.type === 'number') {
