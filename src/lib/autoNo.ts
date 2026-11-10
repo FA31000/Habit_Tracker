@@ -1,5 +1,6 @@
 import type { createClient } from '@/lib/supabase/client'
 import { addDays, todayDate } from '@/lib/streak'
+import { fetchAll } from '@/lib/fetchAll'
 
 type SupabaseClient = ReturnType<typeof createClient>
 
@@ -9,7 +10,7 @@ type SupabaseClient = ReturnType<typeof createClient>
 export async function fillMissedDays(supabase: SupabaseClient, userId: string): Promise<void> {
   const [{ data: habits }, { data: checkins }] = await Promise.all([
     supabase.from('habits').select('id, start_date').eq('user_id', userId).eq('is_active', true),
-    supabase.from('checkins').select('habit_id, date').eq('user_id', userId),
+    fetchAll((from, to) => supabase.from('checkins').select('habit_id, date').eq('user_id', userId).order('date', { ascending: true }).order('habit_id', { ascending: true }).range(from, to)),
   ])
 
   const datesByHabit: Record<string, Set<string>> = {}

@@ -11,6 +11,7 @@ import { migrateLocalDataToSupabase } from '@/lib/migrate'
 import { RateChart, RateRangeToggle, rangeDays } from '@/components/RateChart'
 import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
+import { fetchAll } from '@/lib/fetchAll'
 
 type HabitStats = {
   habit: Habit
@@ -38,7 +39,7 @@ export default function StatsPage() {
 
     await migrateLocalOrder(supabase, user.id)
     const { data: habits } = await supabase.from('habits').select('*').eq('user_id', user.id).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true })
-    const { data: allCheckins } = await supabase.from('checkins').select('*').eq('user_id', user.id)
+    const { data: allCheckins } = await fetchAll((from, to) => supabase.from('checkins').select('*').eq('user_id', user.id).order('date', { ascending: true }).order('habit_id', { ascending: true }).range(from, to))
     const { data: badges } = await supabase.from('badges').select('*').eq('user_id', user.id)
 
     const ansMap: Record<string, PopupAnswers> = {}

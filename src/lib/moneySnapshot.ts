@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/client'
 import { fetchUserConfig } from './appConfig'
 import { totalEarned, creditsTotal, availableBalance, ratePerDay, type CheckinsByHabit } from './balance'
 import type { AppConfig } from './types'
+import { fetchAll } from '@/lib/fetchAll'
 
 export type RewardTarget = { id: string; name: string; price: number }
 
@@ -29,7 +30,7 @@ export async function fetchMoneySnapshot(): Promise<MoneySnapshot | null> {
   ] = await Promise.all([
     fetchUserConfig(),
     supabase.from('habits').select('id, dollar_value, allowed_no_days_per_week, start_date').eq('user_id', user.id).eq('is_active', true),
-    supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
+    fetchAll((from, to) => supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id).order('date', { ascending: true }).order('habit_id', { ascending: true }).range(from, to)),
     supabase.from('wishlist_items').select('id, name, price, redeemed').eq('user_id', user.id),
     supabase.from('credits').select('amount, date').eq('user_id', user.id),
   ])
