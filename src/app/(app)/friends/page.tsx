@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG } from '@/lib/types'
+import { fetchAll } from '@/lib/fetchAll'
 
 type Thumb = { userId: string; name: string }
 type Comment = { id: string; userId: string; name: string; body: string; createdAt: string }
@@ -53,14 +54,14 @@ export default function FriendsPage() {
       { data: profiles }, { data: badges }, { data: habits }, { data: thumbs }, { data: comments },
       { data: perfectDays }, { data: pdThumbs }, { data: pdComments },
     ] = await Promise.all([
-      supabase.from('profiles').select('id, display_name'),
-      supabase.from('badges').select('id, habit_id, user_id, milestone_days, earned_at').order('earned_at', { ascending: false }),
-      supabase.from('public_habits').select('id, name'),
-      supabase.from('badge_thumbs').select('badge_id, user_id'),
-      supabase.from('badge_comments').select('id, badge_id, user_id, body, created_at').order('created_at', { ascending: true }),
-      supabase.from('perfect_days').select('user_id, date, created_at'),
-      supabase.from('perfect_day_thumbs').select('owner_id, date, user_id'),
-      supabase.from('perfect_day_comments').select('id, owner_id, date, user_id, body, created_at').order('created_at', { ascending: true }),
+      fetchAll((from, to) => supabase.from('profiles').select('id, display_name').order('id').range(from, to)),
+      fetchAll((from, to) => supabase.from('badges').select('id, habit_id, user_id, milestone_days, earned_at').order('earned_at', { ascending: false }).order('id').range(from, to)),
+      fetchAll((from, to) => supabase.from('public_habits').select('id, name').order('id').range(from, to)),
+      fetchAll((from, to) => supabase.from('badge_thumbs').select('badge_id, user_id').order('badge_id').order('user_id').range(from, to)),
+      fetchAll((from, to) => supabase.from('badge_comments').select('id, badge_id, user_id, body, created_at').order('created_at', { ascending: true }).order('id').range(from, to)),
+      fetchAll((from, to) => supabase.from('perfect_days').select('user_id, date, created_at').order('user_id').order('date').range(from, to)),
+      fetchAll((from, to) => supabase.from('perfect_day_thumbs').select('owner_id, date, user_id').order('owner_id').order('date').order('user_id').range(from, to)),
+      fetchAll((from, to) => supabase.from('perfect_day_comments').select('id, owner_id, date, user_id, body, created_at').order('created_at', { ascending: true }).order('id').range(from, to)),
     ])
 
     const nameOf = new Map((profiles ?? []).filter(p => p.display_name).map(p => [p.id, p.display_name as string]))
