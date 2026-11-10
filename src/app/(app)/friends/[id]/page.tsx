@@ -11,6 +11,7 @@ import { RateChart, RateRangeToggle, rangeDays } from '@/components/RateChart'
 import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 import { fetchAll } from '@/lib/fetchAll'
+import StreakBadge from '@/components/StreakBadge'
 
 type HabitStats = {
   habit: Habit
@@ -150,7 +151,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
 
       <div className="space-y-3">
         {stats.map(s => {
-          const topBadge = s.earnedBadges.length > 0 ? BADGE_CONFIG[s.earnedBadges[s.earnedBadges.length - 1]] : null
+          const topBadge = s.earnedBadges.length > 0 ? s.earnedBadges[s.earnedBadges.length - 1] : null
           const popupConfig = getPopupConfig(s.habit)
 
           return (
@@ -159,7 +160,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
               <div className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
                 <div className="flex items-start justify-between mb-3">
                   <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
-                  {topBadge && <span className="text-lg" title={`${topBadge.label} badge`}>{topBadge.emoji}</span>}
+                  {topBadge && <StreakBadge milestone={topBadge} size="lg" />}
                 </div>
                 <div className="grid grid-cols-4 gap-2 mb-3 pb-3 border-b border-gray-100">
                   {([['✅', 'Yes', s.counts.yes], ['❌', 'No', s.counts.no], ['❄️', 'Freeze', s.counts.freeze], ['⏸️', 'NA', s.counts.na]] as const).map(([icon, label, n]) => (

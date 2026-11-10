@@ -456,8 +456,8 @@ export default function CheckInPage() {
           return (
             <div
               key={habit.id}
-              className={`relative rounded-xl px-3 py-2 shadow-sm ${badge ? '' : 'bg-white ring-1 ring-black/5'}`}
-              style={badge ? { backgroundColor: badge.color + '22' } : undefined}
+              className={`relative rounded-xl px-3 py-2 shadow-sm ${badge ? 'border-l-4' : 'bg-white ring-1 ring-black/5'}`}
+              style={badge ? { backgroundColor: badge.color + '40', borderLeftColor: badge.ring } : undefined}
             >
               {floats[habit.id] && (
                 <span

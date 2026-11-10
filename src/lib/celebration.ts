@@ -23,7 +23,8 @@ export type CelebrationHabit = {
 
 export type NewBadge = { habitId: string; habitName: string; milestone: number }
 
-export type CelebrationContent = { kind: ContentKind; icon: string; text: string; sub?: string }
+// milestone: shown as a badge disc instead of the icon.
+export type CelebrationContent = { kind: ContentKind; icon: string; milestone?: number; text: string; sub?: string }
 
 export type CelebrationStreak = {
   name: string
@@ -136,7 +137,8 @@ export function buildCelebration(args: {
       const mult = getStreakMultiplier(badgeNear.next, cfg)
       return {
         kind: 'badge',
-        icon: b.emoji,
+        icon: '',
+        milestone: badgeNear.next,
         text: `${badgeNear.days} ${badgeNear.days === 1 ? 'day' : 'days'} to your ${b.label} badge (${mult}×)`,
         sub: badgeNear.habit.name,
       }
@@ -198,7 +200,9 @@ export function buildCelebration(args: {
     balanceAfter,
     newBadges,
     unlocked,
-    accent: topBadge ? BADGE_CONFIG[topBadge.milestone].color : '#fbbf24',
+    // The overlay is dark, so the deep tiers would vanish as confetti: use one
+    // bright green for every tier.
+    accent: topBadge ? '#4ADE80' : '#fbbf24',
     streaks,
     nudge: content,
     quote,

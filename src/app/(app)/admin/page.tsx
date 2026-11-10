@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { isAdmin } from '@/lib/admin'
 import { BADGE_CONFIG, BADGE_MILESTONES, DEFAULT_APP_CONFIG, type AppConfig, type Feedback } from '@/lib/types'
 import { fetchAppConfig, saveAppConfig } from '@/lib/appConfig'
+import StreakBadge from '@/components/StreakBadge'
 
 export default function AdminPage() {
   const [allowed, setAllowed] = useState<boolean | null>(null)
@@ -83,7 +84,7 @@ export default function AdminPage() {
             <div className="space-y-3">
               {BADGE_MILESTONES.map(m => (
                 <div key={m} className="flex items-center gap-2">
-                  <span className="text-base shrink-0">{BADGE_CONFIG[m].emoji}</span>
+                  <StreakBadge milestone={m} />
                   <span className="text-sm text-gray-600 shrink-0">After {m} days</span>
                   <input
                     type="number"
