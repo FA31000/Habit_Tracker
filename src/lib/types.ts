@@ -78,7 +78,7 @@ export type Feedback = {
   created_at: string
 }
 
-export const BADGE_MILESTONES = [7, 14, 30, 90, 180, 365]
+export const BADGE_MILESTONES = [7, 15, 30, 90, 180, 365]
 
 export type BadgeStyle = {
   label: string
@@ -91,7 +91,7 @@ export type BadgeStyle = {
 // trophy tier: darkest green with a gold ring.
 export const BADGE_CONFIG: Record<number, BadgeStyle> = {
   7:   { label: '7-day',   color: '#F0FDF4', text: '#166534', ring: '#86EFAC' },
-  14:  { label: '14-day',  color: '#BBF7D0', text: '#14532D', ring: '#4ADE80' },
+  15:  { label: '15-day',  color: '#BBF7D0', text: '#14532D', ring: '#4ADE80' },
   30:  { label: '30-day',  color: '#4ADE80', text: '#14532D', ring: '#22C55E' },
   90:  { label: '90-day',  color: '#16A34A', text: '#FFFFFF', ring: '#15803D' },
   180: { label: '180-day', color: '#166534', text: '#FFFFFF', ring: '#14532D' },
@@ -111,7 +111,7 @@ export type AppConfig = {
 }
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  badgeMultipliers: { 7: 1.5, 14: 1.75, 30: 2, 90: 2.5, 180: 3, 365: 4 },
+  badgeMultipliers: { 7: 1.5, 15: 1.75, 30: 2, 90: 2.5, 180: 3, 365: 4 },
   currencySymbol: 'S$',
   weeklyNoFreezeBonus: 10,
 }

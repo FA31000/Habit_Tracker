@@ -23,6 +23,6 @@ create policy "read own bonus config" on user_bonus_config
 insert into user_bonus_config (user_id, badge_multipliers)
 values (
   'c68b4e8a-c94c-48f0-a9d9-ba660af3bd5a',
-  '{"7":1.15,"14":1.25,"30":1.35,"90":1.45,"180":1.45,"365":1.45}'::jsonb
+  '{"7":1.15,"15":1.25,"30":1.35,"90":1.45,"180":1.45,"365":1.45}'::jsonb
 )
 on conflict (user_id) do update set badge_multipliers = excluded.badge_multipliers;

@@ -24,5 +24,5 @@ create policy "app_config: admin update" on app_config
 -- Starting values: one points multiplier per badge milestone.
 insert into app_config (id, config) values (
   1,
-  '{"currencySymbol": "S$", "badgeMultipliers": {"7": 1.5, "14": 1.75, "30": 2, "90": 2.5, "180": 3, "365": 4}}'
+  '{"currencySymbol": "S$", "badgeMultipliers": {"7": 1.5, "15": 1.75, "30": 2, "90": 2.5, "180": 3, "365": 4}}'
 ) on conflict (id) do nothing;
