@@ -47,13 +47,16 @@ const RED = '#dc2626'
 // `days` days ending on `endDate`. Without `width` it fills its container;
 // give a width where the container has none (e.g. a shrink-to-fit popup).
 // `trendColor` draws the line red when the rate ended lower than it started.
-export function RateChart({ checkins, endDate, days, width, height = 110, trendColor = false }: {
+// `endLabel` prints the latest rate (rounded, like the old Rate number) next to
+// the line's last point.
+export function RateChart({ checkins, endDate, days, width, height = 110, trendColor = false, endLabel = false }: {
   checkins: StreakCheckin[]
   endDate: string
   days: number
   width?: number
   height?: number
   trendColor?: boolean
+  endLabel?: boolean
 }) {
   const series = cumulativeRateSeries(checkins, endDate, days)
   const values = series.flatMap(p => (p.rate === null ? [] : [p.rate]))
@@ -65,9 +68,10 @@ export function RateChart({ checkins, endDate, days, width, height = 110, trendC
   const pad = Math.max(2, (max - min) * 0.15)
   const domain = [Math.max(0, Math.floor(min - pad)), Math.min(100, Math.ceil(max + pad))]
   const color = trendColor && values[values.length - 1] < values[0] ? RED : GREEN
+  const lastIndex = series.findLastIndex(p => p.rate !== null)
 
   const chart = (
-        <LineChart data={series} width={width} height={width ? height : undefined} margin={{ top: 4, right: 18, left: -20, bottom: 0 }}>
+        <LineChart data={series} width={width} height={width ? height : undefined} margin={{ top: endLabel ? 14 : 4, right: endLabel ? 36 : 18, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
           <XAxis
             dataKey="date"
@@ -93,6 +97,17 @@ export function RateChart({ checkins, endDate, days, width, height = 110, trendC
             type="monotone" dataKey="rate" stroke={color} strokeWidth={2}
             dot={days <= 7 ? <Dot r={3} fill={color} /> : false}
             activeDot={{ r: 4 }} isAnimationActive={false}
+            label={endLabel ? ({ x, y, index }: { x?: number | string; y?: number | string; index?: number }) => {
+              if (index !== lastIndex || x == null || y == null) return <g />
+              return (
+                <g>
+                  <circle cx={Number(x)} cy={Number(y)} r={3} fill={color} />
+                  <text x={Number(x) + 6} y={Number(y)} dy={4} fill={color} fontSize={12} fontWeight={700}>
+                    {Math.round(values[values.length - 1])}%
+                  </text>
+                </g>
+              )
+            } : undefined}
           />
         </LineChart>
   )

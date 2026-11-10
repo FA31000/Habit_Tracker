@@ -12,6 +12,7 @@ import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
 import { fetchAll } from '@/lib/fetchAll'
 import StreakBadge from '@/components/StreakBadge'
+import HabitStatRow from '@/components/HabitStatRow'
 
 type HabitStats = {
   habit: Habit
@@ -162,29 +163,8 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
                   <p className="text-sm font-semibold text-gray-900 flex-1 pr-2">{s.habit.name}</p>
                   {topBadge && <StreakBadge milestone={topBadge} size="lg" />}
                 </div>
-                <div className="grid grid-cols-4 gap-2 mb-3 pb-3 border-b border-gray-100">
-                  {([['✅', 'Yes', s.counts.yes], ['❌', 'No', s.counts.no], ['❄️', 'Freeze', s.counts.freeze], ['⏸️', 'NA', s.counts.na]] as const).map(([icon, label, n]) => (
-                    <div key={label} className="text-center">
-                      <p className="text-sm text-gray-700 font-semibold">{icon} {n}</p>
-                      <p className="text-[11px] text-gray-400">{label}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center">
-                    <p className="text-gray-900 font-bold">{s.currentStreak}</p>
-                    <p className="text-xs text-gray-400">Streak</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-gray-900 font-bold">{s.longestStreak}</p>
-                    <p className="text-xs text-gray-400">Best</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-gray-900 font-bold">{s.counts.rate}%</p>
-                    <p className="text-xs text-gray-400">Rate</p>
-                  </div>
-                </div>
-                <RateChart checkins={s.checkins} endDate={today} days={rangeDays(range)} />
+                <HabitStatRow streak={s.currentStreak} best={s.longestStreak} counts={s.counts} />
+                <RateChart checkins={s.checkins} endDate={today} days={rangeDays(range)} endLabel />
               </div>
 
               {/* Popup data visualizations */}
