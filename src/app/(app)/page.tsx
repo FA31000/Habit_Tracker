@@ -15,6 +15,7 @@ import { RateChart } from '@/components/RateChart'
 import { buildCelebration, type Celebration, type NewBadge } from '@/lib/celebration'
 import { fetchMoneySnapshot } from '@/lib/moneySnapshot'
 import { buzz, CELEBRATION_BUZZ } from '@/lib/haptics'
+import { fetchAll } from '@/lib/fetchAll'
 
 type CheckinMap = Record<string, 'yes' | 'no' | 'freeze' | 'na'>
 type FloatLine = { text: string; className: string }
@@ -95,7 +96,7 @@ export default function CheckInPage() {
       supabase.from('habits').select('*').eq('user_id', user.id).eq('is_active', true).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
       supabase.from('checkins').select('*').eq('user_id', user.id).eq('date', selectedDate),
       supabase.from('freeze_tokens').select('*').eq('user_id', user.id).eq('week_start', weekStart).single(),
-      supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id),
+      fetchAll((from, to) => supabase.from('checkins').select('habit_id, response, date').eq('user_id', user.id).order('date', { ascending: true }).order('habit_id', { ascending: true }).range(from, to)),
       fetchUserConfig(),
     ])
 

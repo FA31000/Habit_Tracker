@@ -10,6 +10,7 @@ import type { StreakCheckin } from '@/lib/streak'
 import { RateChart, RateRangeToggle, rangeDays } from '@/components/RateChart'
 import type { RateRange } from '@/components/RateChart'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, CartesianGrid, Dot } from 'recharts'
+import { fetchAll } from '@/lib/fetchAll'
 
 type HabitStats = {
   habit: Habit
@@ -38,7 +39,7 @@ export default function FriendProfilePage({ params }: { params: Promise<{ id: st
 
     const [{ data: habits }, { data: allCheckins }, { data: badges }] = await Promise.all([
       supabase.from('public_habits').select('*').eq('user_id', id).eq('is_active', true).order('sort_order', { ascending: true, nullsFirst: false }).order('created_at', { ascending: true }),
-      supabase.from('public_checkins').select('*').eq('user_id', id),
+      fetchAll((from, to) => supabase.from('public_checkins').select('*').eq('user_id', id).order('date', { ascending: true }).order('habit_id', { ascending: true }).range(from, to)),
       supabase.from('badges').select('*').eq('user_id', id),
     ])
 

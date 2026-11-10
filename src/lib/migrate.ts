@@ -1,5 +1,6 @@
 import type { HabitPopupConfig, PopupAnswers } from '@/lib/types'
 import type { createClient } from '@/lib/supabase/client'
+import { fetchAll } from '@/lib/fetchAll'
 
 type SupabaseClient = ReturnType<typeof createClient>
 
@@ -44,7 +45,7 @@ export async function migrateLocalDataToSupabase(supabase: SupabaseClient): Prom
   }
 
   // Migrate popup answers into the checkins table (only where not already set).
-  const { data: checkins } = await supabase.from('checkins').select('id, habit_id, date, answers').eq('user_id', user.id)
+  const { data: checkins } = await fetchAll((from, to) => supabase.from('checkins').select('id, habit_id, date, answers').eq('user_id', user.id).order('date', { ascending: true }).order('habit_id', { ascending: true }).range(from, to))
   for (const c of checkins ?? []) {
     if (c.answers) continue
     const key = c.habit_id + '_' + c.date
