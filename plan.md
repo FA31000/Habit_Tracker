@@ -24,7 +24,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 - **Dynamic app icon color** (Android home screen) changes based on your longest active streak, like Duolingo:
   - Default — no streak yet
   - 5-day — 5+ day streak
-  - 14-day — 14+ day streak
+  - 15-day — 15+ day streak
   - 30-day — 30+ day streak
   - 90-day — 90+ day streak
   - 180-day — 180+ day streak
@@ -71,9 +71,9 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - **Three tiers**, set in `buildCelebration` (`src/lib/celebration.ts`):
     - **Partial day** (not every applicable habit Yes): dark slate background, "Day logged · 3 of 4 habits done", no confetti, one short buzz.
     - **Perfect day**: green background, "Perfect day!", confetti, the ×2 step, a longer buzz.
-    - **Milestone day**: a new badge was earned or a reward became affordable (its price lies between the balance before and after today). Amber-to-green background, chips naming each new badge / unlocked reward, the most confetti in the badge's colour, the strongest buzz. The ring shows the habit that earned the badge, full, labelled "14-day badge".
+    - **Milestone day**: a new badge was earned or a reward became affordable (its price lies between the balance before and after today). Amber-to-green background, chips naming each new badge / unlocked reward, the most confetti in the badge's colour, the strongest buzz. The ring shows the habit that earned the badge, full, labelled "15-day badge".
   - **Escalation**: a badge or reward **3 days away or fewer** (`NEAR_DAYS`) counts as "close". On a perfect day that adds an "Almost there" chip, more confetti and a stronger buzz; on a partial day only the chip.
-  - **Content line — one per day, rotating** through: reward progress ("S$14 to go for AirPods — about 6 days at this pace", using the same 14-day run rate as the Rewards forecast), next badge countdown ("2 days to your 14-day badge (1.75×)", for the habit closest to its next badge), the habit's own description shown back as its "why" (habits answered Yes that have one), and a quote. The rotation is by date, so a day always shows the same line; a type with nothing to show is skipped. **Big moments override the rotation**: on a new-badge day the badge habit's "why" (if it has a description), else a badge 3 days away or fewer, else a reward 3 days away or fewer.
+  - **Content line — one per day, rotating** through: reward progress ("S$14 to go for AirPods — about 6 days at this pace", using the same 14-day run rate as the Rewards forecast), next badge countdown ("2 days to your 15-day badge (1.75×)", for the habit closest to its next badge), the habit's own description shown back as its "why" (habits answered Yes that have one), and a quote. The rotation is by date, so a day always shows the same line; a type with nothing to show is skipped. **Big moments override the rotation**: on a new-badge day the badge habit's "why" (if it has a description), else a badge 3 days away or fewer, else a reward 3 days away or fewer.
   - **Quotes**: ~55 short quotes with authors, kept in code (`src/lib/quotes.ts`). Edit the list there.
   - **Backfilled days** (Save Check-In on a past date): no overlay, no confetti, no buzz — just the summary card with that day's earnings and the balance now.
   - The balance comes from `fetchMoneySnapshot` (`src/lib/moneySnapshot.ts`), shared with the top green badge so the two can't disagree; Save Check-In also fires the `balance` storage event so the header updates at once. The run rate is `ratePerDay` in `src/lib/balance.ts`, shared with the Rewards page.
@@ -83,7 +83,7 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
 - Each habit kept = base points (= dollar value set for that habit)
 - Streak multiplier on top: **one multiplier per badge milestone**, set by the admin on the Admin page (below the first milestone the multiplier is 1×). Defaults:
   - ⚫ 7+ days: 1.5x
-  - 🟤 14+ days: 1.75x
+  - 🟤 15+ days: 1.75x
   - ⚪ 30+ days: 2x
   - 🟡 90+ days: 2.5x
   - 🩶 180+ days: 3x
@@ -112,9 +112,9 @@ A streak counts every day that is a **"Yes"**, an **allowed "No"**, or a **"Free
 This is computed live from check-in history (the single source of truth) by `computeHabitStreak` in `src/lib/streak.ts`, used everywhere a streak appears: home page, Stats, Rewards/balance multiplier, Partner view, and badges. Saving a check-in recomputes the per-habit `streaks` table (current + longest) from full history so the Partner view stays accurate. Save Check-In fetches all habits' data at the same time and sends all writes at the same time (not one habit after another), so it takes well under a second.
 
 ### 5. Badges (AA-style)
-Per habit, earned at streak milestones. The **colored dot/emoji** is the visual, but in **text** each badge is named by its **number of days** (never the colour name, since colours aren't self-explanatory) — e.g. "7-day badge", "30-day badge". On the check-in (home) page the badge is shown only by the card's **background colour**; the text next to the dollar value instead shows the habit's **current streak** (e.g. "12 days"), displayed on every habit even without a badge. The streak, card colour and dollar value **update live as you tap** an answer (before Save Check-In), using the streak that answer leads to. The dollar value on each card is **what a Yes on that day pays**: base value × the multiplier for the streak *including* that Yes. So on day 13 of a streak, the card already shows the 14-day badge's rate, since the Yes is what reaches it. (Previously it used the streak before the Yes, so it disagreed with the actual payout whenever a Yes crossed a badge.) The value is **coloured by that day's answer**: green when answered Yes (earned), red when answered No or Frozen (not earned), gray while unanswered or NA:
+Per habit, earned at streak milestones. The **colored dot/emoji** is the visual, but in **text** each badge is named by its **number of days** (never the colour name, since colours aren't self-explanatory) — e.g. "7-day badge", "30-day badge". On the check-in (home) page the badge is shown only by the card's **background colour**; the text next to the dollar value instead shows the habit's **current streak** (e.g. "12 days"), displayed on every habit even without a badge. The streak, card colour and dollar value **update live as you tap** an answer (before Save Check-In), using the streak that answer leads to. The dollar value on each card is **what a Yes on that day pays**: base value × the multiplier for the streak *including* that Yes. So on day 14 of a streak, the card already shows the 15-day badge's rate, since the Yes is what reaches it. (Previously it used the streak before the Yes, so it disagreed with the actual payout whenever a Yes crossed a badge.) The value is **coloured by that day's answer**: green when answered Yes (earned), red when answered No or Frozen (not earned), gray while unanswered or NA:
 - ⚫ 7-day streak
-- 🟤 14-day streak
+- 🟤 15-day streak
 - ⚪ 30-day streak
 - 🟡 90-day streak
 - 🩶 180-day streak
@@ -126,7 +126,7 @@ Badges displayed on a profile/trophy page per habit.
 
 ### 6. Stats Page
 - Per habit: a small top row of all-time answer counts — ✅ Yes · ❌ No · ❄️ Freeze · ⏸️ NA — then current streak, longest streak and success rate (%) below. **Rate = Yes ÷ (Yes + No)**; Freeze and NA are left out. Missed days count as No because auto-No saves them. Counts, rate and charts are all-time. Computed by `responseCounts` in `src/lib/streak.ts`; the friend profile page shows the same row and rate.
-- **Badge legend**: a small "Badges" card at the top of the page showing all six badge colors with their day counts (⚫ 7, 🟤 14, ⚪ 30, 🟡 90, 🩶 180, 🏆 365), as a reminder of what each badge means (the overall Balance / Days done / Best streak cards were removed — the top green badge already shows the balance)
+- **Badge legend**: a small "Badges" card at the top of the page showing all six badge colors with their day counts (7, 15, 30, 90, 180, 365 — green discs with the day count inside), as a reminder of what each badge means (the overall Balance / Days done / Best streak cards were removed — the top green badge already shows the balance)
 - **Popup data visualizations** per habit (inside the same white card as the habit's streak stats, only if data exists). Hidden by default: a small down-arrow at the bottom of the habit card (shown only when extra stats exist) expands them; clicking again collapses them. The arrow flips upside down when expanded and stays at the bottom of the card.
   - **Number questions** (e.g. Weight, Minutes read): line graph over all time + summary stats (avg, total, entries)
   - **Multi-choice questions** (e.g. What did you do?, Why not?): horizontal bar chart showing frequency of each option over all time
@@ -187,7 +187,7 @@ Replaces the old Accountability Partner share-link. Everyone who takes part has 
 - **Admin page** (`/admin`, admin only): a dedicated page listing all feedback (newest first), showing the message, sender email, and date. Admin can **Mark as done** (toggle) or **Delete** each item.
 - **Admin nav button**: an "Admin" tab appears in the bottom navigation bar **only when the admin is logged in** (hidden for everyone else). The page also re-checks access on load and shows "no access" to non-admins.
 - Security: Supabase RLS lets any logged-in user insert their own feedback, but only the admin email can read, update, or delete feedback.
-- **Streak Bonuses card** (top of the Admin page): one points-multiplier input per badge milestone (7, 14, 30, 90, 180, 365 days) plus a "Reset to defaults" button. Every change saves immediately ("Saving... / Saved ✓" indicator). Applies to **all users** — moved here from the per-device Settings page.
+- **Streak Bonuses card** (top of the Admin page): one points-multiplier input per badge milestone (7, 15, 30, 90, 180, 365 days) plus a "Reset to defaults" button. Every change saves immediately ("Saving... / Saved ✓" indicator). Applies to **all users** — moved here from the per-device Settings page.
 - **Weekly No-Freeze Bonus card** (Admin page, below Streak Bonuses): a single dollar input for the flat bonus paid each finished freeze-free week (default S$10). Saves immediately with the same indicator; applies to **all users** (stored as `weeklyNoFreezeBonus` in the shared `app_config`). See "Weekly no-freeze bonus" under Points & Dollar Balance for the rules.
 - **Shared app config**: stored in the Supabase `app_config` table (single row, `config` jsonb holding `badgeMultipliers`, `currencySymbol`, and `weeklyNoFreezeBonus`; created by `supabase-appconfig.sql`). RLS: any signed-in user can read, only the admin email can insert/update. Pages fetch it via `fetchAppConfig()` in `src/lib/appConfig.ts`, which also caches the result in localStorage (`app_config`) as an offline fallback and fires a `storage` event so open pages refresh instantly.
 - **Per-account streak bonus override**: an optional per-user override of the badge multipliers, stored in the Supabase `user_bonus_config` table (`user_id`, `badge_multipliers` jsonb; created by `supabase-user-bonus.sql`). RLS: each user can read only their own row; rows are set by the admin via SQL. The money calculation uses `fetchUserConfig()` in `src/lib/appConfig.ts`, which starts from the shared config and layers the current user's override on top if a row exists — accounts with no row keep the shared/default bonus unchanged. Used by the home page, Rewards page, and the top `BalanceBadge` (the Admin page still uses `fetchAppConfig()` to edit the shared config). The perfect-day double is unaffected. Currently only one account uses this: Hadrien (`hadrienchenleonard@gmail.com`), given a gentle ladder capped at 1.45x (`7→1.15, 14→1.25, 30→1.35, 90→1.45, 180→1.45, 365→1.45`) so a flawless week tops out near S$20.
