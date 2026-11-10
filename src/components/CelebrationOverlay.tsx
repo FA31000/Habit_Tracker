@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Confetti from '@/components/Confetti'
 import { BADGE_CONFIG } from '@/lib/types'
 import type { Celebration } from '@/lib/celebration'
+import StreakBadge from '@/components/StreakBadge'
 
 // Timeline (ms from opening). The day's money counts up, a perfect day stamps
 // "×2" and counts on to the doubled amount, then the balance rolls old → new,
@@ -86,8 +87,8 @@ export default function CelebrationOverlay({ data, symbol, onClose }: { data: Ce
         {data.tier === 'milestone' && (
           <div className="flex flex-wrap justify-center gap-2 mb-3" style={{ animation: 'pop-in 600ms ease-out' }}>
             {data.newBadges.map(b => (
-              <span key={b.habitId + b.milestone} className="rounded-full bg-white/15 px-3 py-1 text-sm font-semibold">
-                {BADGE_CONFIG[b.milestone].emoji} {BADGE_CONFIG[b.milestone].label} · {b.habitName}
+              <span key={b.habitId + b.milestone} className="inline-flex items-center gap-1.5 rounded-full bg-white/15 py-1 pl-1 pr-3 text-sm font-semibold">
+                <StreakBadge milestone={b.milestone} size="sm" /> {BADGE_CONFIG[b.milestone].label} · {b.habitName}
               </span>
             ))}
             {data.unlocked.map(r => (
@@ -163,7 +164,7 @@ export default function CelebrationOverlay({ data, symbol, onClose }: { data: Ce
           {showContent && data.nudge && (
             <div className="rounded-2xl bg-white/10 px-4 py-3" style={{ animation: 'fade-up 400ms ease-out' }}>
               <p className={`text-sm leading-snug ${data.nudge.kind === 'why' ? 'italic' : 'font-semibold'}`}>
-                <span className="not-italic mr-1">{data.nudge.icon}</span>{data.nudge.text}
+                {data.nudge.milestone ? <StreakBadge milestone={data.nudge.milestone} size="sm" className="mr-1.5" /> : <span className="not-italic mr-1">{data.nudge.icon}</span>}{data.nudge.text}
               </p>
               {data.nudge.sub && <p className="text-xs text-white/60 mt-1">— {data.nudge.sub}</p>}
             </div>

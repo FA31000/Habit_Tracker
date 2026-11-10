@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { BADGE_CONFIG } from '@/lib/types'
 import { fetchAll } from '@/lib/fetchAll'
+import StreakBadge from '@/components/StreakBadge'
 
 type Thumb = { userId: string; name: string }
 type Comment = { id: string; userId: string; name: string; body: string; createdAt: string }
@@ -280,7 +281,7 @@ export default function FriendsPage() {
           return (
             <div key={itemKey(item)} className="bg-white rounded-2xl p-4 shadow-sm ring-1 ring-black/5">
               <div className="flex items-start gap-3">
-                <span className="text-2xl">{cfg?.emoji ?? '🏅'}</span>
+                {cfg ? <StreakBadge milestone={item.milestone} size="lg" /> : <span className="text-2xl">🏅</span>}
                 <div className="flex-1">
                   <p className="text-sm text-gray-900">
                     <Link href={`/friends/${item.ownerId}`} className="font-semibold text-emerald-700">

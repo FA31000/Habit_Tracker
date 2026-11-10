@@ -22,13 +22,14 @@ The user wants a personal habit tracker that feels like a game. Daily check-ins,
   - The old browser-only order (`habit_order` in localStorage) is lifted onto the account once, on first load, and only when no habit has a `sort_order` yet — so an order already set on another device wins.
   - `public_habits` also exposes `sort_order`, so friends see your habits in your order.
 - **Dynamic app icon color** (Android home screen) changes based on your longest active streak, like Duolingo:
-  - ⚫ Default — no streak yet
-  - 🔘 Grey — 5+ day streak
-  - 🟤 Bronze — 14+ day streak
-  - ⚪ Silver — 30+ day streak
-  - 🟡 Gold — 90+ day streak
-  - 🩶 Platinum — 180+ day streak
-  - 🏆 Cup — 365+ day streak
+  - Default — no streak yet
+  - 5-day — 5+ day streak
+  - 14-day — 14+ day streak
+  - 30-day — 30+ day streak
+  - 90-day — 90+ day streak
+  - 180-day — 180+ day streak
+  - 365-day — 365+ day streak
+  - Colors follow the badge ramp: pale mint to dark green, with a gold ring on 365
   - Implemented via a dynamic PWA manifest that serves the correct colored icon based on the user's current streak
 - Each habit has:
   - Name (question format)

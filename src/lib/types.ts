@@ -80,16 +80,25 @@ export type Feedback = {
 
 export const BADGE_MILESTONES = [7, 14, 30, 90, 180, 365]
 
-export const BADGE_CONFIG: Record<number, { label: string; color: string; emoji: string }> = {
-  7:   { label: '7-day',   color: '#9CA3AF', emoji: '⚫' },
-  14:  { label: '14-day',  color: '#92400E', emoji: '🟤' },
-  30:  { label: '30-day',  color: '#9CA3AF', emoji: '⚪' },
-  90:  { label: '90-day',  color: '#D97706', emoji: '🟡' },
-  180: { label: '180-day', color: '#CBD5E1', emoji: '🩶' },
-  365: { label: '365-day', color: '#F59E0B', emoji: '🏆' },
+export type BadgeStyle = {
+  label: string
+  color: string // disc fill, white (pale mint) to dark green
+  text: string  // day-count colour inside the disc
+  ring: string  // outline, so the pale tiers still show on white
 }
 
-export function getStreakBadge(streak: number): { label: string; color: string; emoji: string } | null {
+// Tailwind green scale, kept apart from the app's emerald accent. 365 is the
+// trophy tier: darkest green with a gold ring.
+export const BADGE_CONFIG: Record<number, BadgeStyle> = {
+  7:   { label: '7-day',   color: '#F0FDF4', text: '#166534', ring: '#86EFAC' },
+  14:  { label: '14-day',  color: '#BBF7D0', text: '#14532D', ring: '#4ADE80' },
+  30:  { label: '30-day',  color: '#4ADE80', text: '#14532D', ring: '#22C55E' },
+  90:  { label: '90-day',  color: '#16A34A', text: '#FFFFFF', ring: '#15803D' },
+  180: { label: '180-day', color: '#166534', text: '#FFFFFF', ring: '#14532D' },
+  365: { label: '365-day', color: '#14532D', text: '#FFFFFF', ring: '#F59E0B' },
+}
+
+export function getStreakBadge(streak: number): BadgeStyle | null {
   const earned = BADGE_MILESTONES.filter(m => streak >= m)
   if (earned.length === 0) return null
   return BADGE_CONFIG[earned[earned.length - 1]]
