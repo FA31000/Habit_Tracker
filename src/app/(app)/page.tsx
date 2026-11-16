@@ -22,30 +22,8 @@ type FloatLine = { text: string; className: string }
 
 const MIN_DATE = '2026-06-27'
 
-// The answer float rises over the rows above (usually already answered), so
-// the next rows stay visible. A row closer than this to the top of the screen
-// has no room above, so its float drops down over the row instead.
-const FLOAT_ROOM = 180
-
 // Auto-No runs once per app open, not on every date change.
 let missedDaysFilled = false
-
-// Shown in a picked Yes / No button, white on its colour.
-function CheckMark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M5 12.5l4.5 4.5L19 7.5" />
-    </svg>
-  )
-}
-
-function CrossMark() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.2} strokeLinecap="round" aria-hidden="true">
-      <path d="M6 6l12 12M18 6L6 18" />
-    </svg>
-  )
-}
 
 function todayDate() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' })
@@ -72,11 +50,10 @@ export default function CheckInPage() {
   const [celebration, setCelebration] = useState<Celebration | null>(null)
   // Balance after the last Save Check-In, for the summary card under the list.
   const [savedBalance, setSavedBalance] = useState<number | null>(null)
-  // Lines floating up from a habit's row right after answering Yes / No / Freeze:
+  // Lines floating up from a card right after answering Yes / No / Freeze:
   // money, streak and success rate.
   // rateHistory: the habit's answers with the new one applied, for the 7-day rate chart.
-  // up: rise over the rows above rather than drop over the row (see FLOAT_ROOM).
-  const [floats, setFloats] = useState<Record<string, { key: number; lines: FloatLine[]; rateHistory: StreakCheckin[]; up: boolean }>>({})
+  const [floats, setFloats] = useState<Record<string, { key: number; lines: FloatLine[]; rateHistory: StreakCheckin[] }>>({})
   const [showFreezeBonus, setShowFreezeBonus] = useState(false)
   const [newBadges, setNewBadges] = useState<string[]>([])
   const [selectedDate, setSelectedDate] = useState(todayDate)
@@ -178,20 +155,20 @@ export default function CheckInPage() {
     return habit.question_config
   }
 
-  // The popup answers saved with a Yes or No, e.g. "30 min" or "Tired, Busy",
-  // shown after the money under the habit's name. Null when there are none.
-  function getCheckinDetail(habitId: string, response: 'yes' | 'no'): string | null {
+  function getCheckinLabel(habitId: string, response: 'yes' | 'no'): string {
     const config = getPopupConfig(habitId)
-    if (!config || config.trigger !== response) return null
+    const icon = response === 'yes' ? '✅' : '❌'
+    const word = response === 'yes' ? 'Yes' : 'No'
+    if (!config || config.trigger !== response) return `${icon} ${word}`
     const answers = savedPopupAnswers[habitId + '_' + selectedDate]
-    if (!answers) return null
+    if (!answers) return `${icon} ${word}`
     const parts: string[] = []
     config.questions.forEach(q => {
       const ans = answers[q.label]
       if (q.type === 'multi' && Array.isArray(ans) && ans.length > 0) parts.push(ans.join(', '))
       else if (q.type === 'number' && ans && ans !== '') parts.push(`${ans}${q.unit ? ' ' + q.unit : ''}`)
     })
-    return parts.length > 0 ? parts.join(', ') : null
+    return parts.length > 0 ? `${icon} ${word} (${parts.join(', ')})` : `${icon} ${word}`
   }
 
   // Streak the habit would have if selectedDate held `response` (null = day left unanswered).
@@ -307,9 +284,7 @@ export default function CheckInPage() {
   function showFloat(habitId: string, lines: FloatLine[], rateHistory: StreakCheckin[], vibrate: boolean) {
     const key = Date.now()
     if (vibrate) buzz(25)
-    const row = document.querySelector(`[data-habit-row="${habitId}"]`)
-    const up = !!row && row.getBoundingClientRect().top > FLOAT_ROOM
-    setFloats(p => ({ ...p, [habitId]: { key, lines, rateHistory, up } }))
+    setFloats(p => ({ ...p, [habitId]: { key, lines, rateHistory } }))
     setTimeout(() => setFloats(p => {
       if (p[habitId]?.key !== key) return p
       const next = { ...p }
@@ -445,31 +420,32 @@ export default function CheckInPage() {
   const allAnswered = answered === habits.length
 
   return (
-    <div className="px-3 pt-2 pb-3">
+    <div className="p-3">
       {celebration && <CelebrationOverlay data={celebration} symbol={appConfig.currencySymbol} onClose={() => setCelebration(null)} />}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 mt-1">
         <button
           onClick={() => { setSelectedDate(prev => addDays(prev, -1)); setDone(false) }}
           disabled={selectedDate <= MIN_DATE}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
         >‹</button>
         <div className="text-center">
           <p className="text-sm font-semibold text-gray-800">{formatDate(selectedDate)}</p>
-          <p className="text-[11px] leading-[14px] font-medium text-gray-500">
-            {answered}/{habits.length} answered
-            {selectedDate !== today && (
-              <> · <button onClick={() => { setSelectedDate(today); setDone(false) }} className="text-emerald-600 underline">Back to today</button></>
-            )}
-          </p>
+          {selectedDate !== today && (
+            <button onClick={() => { setSelectedDate(today); setDone(false) }} className="text-xs text-emerald-600 underline mt-0.5">Back to today</button>
+          )}
         </div>
         <button
           onClick={() => { setSelectedDate(prev => addDays(prev, 1)); setDone(false) }}
           disabled={selectedDate >= today}
-          className="w-8 h-8 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-black/5 text-gray-600 disabled:opacity-30 active:bg-gray-100"
         >›</button>
       </div>
 
-      <div className="space-y-1">
+      <div className="flex items-center mb-1.5">
+        <p className="text-sm text-gray-500">{answered}/{habits.length} answered</p>
+      </div>
+
+      <div className="space-y-1.5">
         {habits.map(habit => {
           const response = checkins[habit.id]
           // Live: follows the answer as it's tapped, not just the last load.
@@ -477,21 +453,16 @@ export default function CheckInPage() {
           const badge = getStreakBadge(streak)
           // What a Yes on this day pays (the Yes itself can reach a new badge).
           const yesPay = habit.dollar_value * getStreakMultiplier(projectStreak(habit, 'yes'), appConfig)
-          const detail = response === 'yes' || response === 'no' ? getCheckinDetail(habit.id, response) : null
-          // The picked button fills with colour and the other two fade.
-          const picked = response === 'freeze' ? 'no' : response
-          const fade = (button: 'yes' | 'no' | 'na') => (picked && picked !== button ? ' opacity-50' : '')
           return (
             <div
               key={habit.id}
-              data-habit-row={habit.id}
-              className={`relative flex items-center gap-2.5 min-h-[42px] rounded-xl py-[5px] pl-3 pr-1.5 shadow-sm ${badge ? 'border-l-4' : 'bg-white ring-1 ring-black/5'}`}
+              className={`relative rounded-xl px-3 py-2 shadow-sm ${badge ? 'border-l-4' : 'bg-white ring-1 ring-black/5'}`}
               style={badge ? { backgroundColor: badge.color + '40', borderLeftColor: badge.ring } : undefined}
             >
               {floats[habit.id] && (
                 <span
                   key={floats[habit.id].key}
-                  className={`pointer-events-none absolute left-1/2 ${floats[habit.id].up ? 'bottom-1' : 'top-1'} z-10 flex flex-col items-center whitespace-nowrap rounded-xl bg-white/85 backdrop-blur-sm px-3 py-1.5 shadow-md ring-1 ring-black/5`}
+                  className="pointer-events-none absolute left-1/2 top-1 z-10 flex flex-col items-center whitespace-nowrap rounded-xl bg-white/85 backdrop-blur-sm px-3 py-1.5 shadow-md ring-1 ring-black/5"
                   style={{ animation: 'float-up 6s ease-out forwards' }}
                 >
                   {floats[habit.id].lines.map((l, i) => (
@@ -500,38 +471,31 @@ export default function CheckInPage() {
                   <RateChart checkins={floats[habit.id].rateHistory} endDate={selectedDate} days={7} width={200} height={90} trendColor />
                 </span>
               )}
-              <div className="flex-1 min-w-0">
-                <p className="truncate text-sm leading-[18px] font-semibold text-gray-900">{habit.name}</p>
-                <p className="truncate text-[11px] leading-[14px] font-medium text-gray-500">
-                  {streak} {streak === 1 ? 'day' : 'days'} · <span className={response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}>+{appConfig.currencySymbol}{yesPay.toFixed(2)}</span>
-                  {detail && ` · ${detail}`}
-                </p>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-sm font-semibold text-gray-900">{habit.name}</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-gray-500">{streak} {streak === 1 ? 'day' : 'days'}</span>
+                  <span className={`text-xs font-medium ${response === 'yes' ? 'text-emerald-700' : response && response !== 'na' ? 'text-red-500' : 'text-gray-400'}`}>+{appConfig.currencySymbol}{yesPay.toFixed(2)}</span>
+                </div>
               </div>
-              <div className="flex shrink-0 gap-1.5">
+              <div className="flex gap-2">
                 <button
                   onClick={() => openPopup(habit.id, 'yes')}
-                  aria-label="Yes"
-                  aria-pressed={response === 'yes'}
-                  className={`flex h-8 w-11 items-center justify-center rounded-lg text-base leading-none transition ${response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 active:bg-emerald-100'}${fade('yes')}`}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'yes' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 active:bg-emerald-100'}`}
                 >
-                  {response === 'yes' ? <CheckMark /> : '✅'}
+                  {response === 'yes' ? getCheckinLabel(habit.id, 'yes') : '✅ Yes'}
                 </button>
                 <button
                   onClick={() => openPopup(habit.id, 'no')}
-                  aria-label={response ? 'No' : `No (${nosLeftThisWeek(habit)} left this week)`}
-                  aria-pressed={response === 'no' || response === 'freeze'}
-                  className={`relative flex h-8 w-11 items-center justify-center rounded-lg text-base leading-none transition ${response === 'freeze' ? 'bg-blue-500 text-white' : response === 'no' ? (noWithinAllowance(habit) ? 'bg-orange-500 text-white' : 'bg-red-500 text-white') : 'bg-gray-100 active:bg-red-100'}${fade('no')}`}
+                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'freeze' ? 'bg-blue-500 text-white' : response === 'no' ? (noWithinAllowance(habit) ? 'bg-orange-500 text-white' : 'bg-red-500 text-white') : 'bg-gray-100 text-gray-600 active:bg-red-100'}`}
                 >
-                  {response === 'freeze' ? '❄️' : response === 'no' ? <CrossMark /> : '❌'}
-                  {!response && (
-                    <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-gray-300 text-gray-700 text-[10px] leading-4 font-bold text-center ring-2 ring-white">{nosLeftThisWeek(habit)}</span>
+                  {response === 'freeze' ? '❄️ Frozen' : response === 'no' ? getCheckinLabel(habit.id, 'no') : response === 'yes' || response === 'na' ? '❌ No' : (
+                    <>❌ No <span className="ml-1 inline-flex items-center justify-center min-w-[1.15rem] h-[1.15rem] px-1 rounded-full bg-gray-300 text-gray-700 text-[11px] font-bold align-middle">{nosLeftThisWeek(habit)}</span></>
                   )}
                 </button>
                 <button
                   onClick={() => { if (response !== 'na') saveCheckin(habit.id, 'na', {}) }}
-                  aria-label="Not applicable"
-                  aria-pressed={response === 'na'}
-                  className={`flex h-8 w-10 items-center justify-center rounded-lg text-[13px] leading-none font-semibold transition ${response === 'na' ? 'bg-gray-500 text-white' : 'bg-gray-100 text-gray-400 active:bg-gray-200'}${fade('na')}`}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition ${response === 'na' ? 'bg-gray-500 text-white' : 'bg-gray-100 text-gray-400 active:bg-gray-200'}`}
                 >
                   NA
                 </button>
@@ -541,9 +505,8 @@ export default function CheckInPage() {
         })}
       </div>
 
-      {/* Sticks just above the bottom bar, so it's never below the fold. */}
       {allAnswered && !done && (
-        <button onClick={saveAll} disabled={saving} className="sticky bottom-16 z-20 w-full mt-3 py-3 rounded-2xl bg-emerald-700 hover:bg-emerald-600 disabled:bg-emerald-500 text-white font-bold text-base shadow-lg">
+        <button onClick={saveAll} disabled={saving} className="w-full mt-6 py-4 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-base disabled:opacity-50 shadow-sm">
           {saving ? 'Saving...' : '🎯 Save Check-In'}
         </button>
       )}

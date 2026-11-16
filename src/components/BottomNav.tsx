@@ -83,12 +83,12 @@ export default function BottomNav() {
             <Link
               key={href}
               href={href}
-              className={`flex-1 flex flex-col items-center pt-[7px] pb-1.5 gap-0.5 text-[10px] font-semibold tracking-wide uppercase transition-colors ${
+              className={`flex-1 flex flex-col items-center py-3 gap-1 text-[10px] font-semibold tracking-wide uppercase transition-colors ${
                 active ? 'text-emerald-700' : 'text-gray-400'
               }`}
             >
               {active && (
-                <span className="absolute -mt-[7px] w-6 h-0.5 rounded-full bg-emerald-600" />
+                <span className="absolute -mt-3 w-6 h-0.5 rounded-full bg-emerald-600" />
               )}
               <Icon active={active} />
               <span>{label}</span>
